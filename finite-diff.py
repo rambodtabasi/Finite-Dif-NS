@@ -170,7 +170,7 @@ class PD(NOX.Epetra.Interface.Required,
         #Create Teuchos parameter list to pass parameters to ZOLTAN for load
         #balancing
         parameter_list = Teuchos.ParameterList()
-        parameter_list.set("Partitioning Method","block")
+        parameter_list.set("Partitioning Method","RCP")
         if not self.verbose:
             parameter_sublist = parameter_list.sublist("ZOLTAN")
             parameter_sublist.set("DEBUG_LEVEL", "0")
@@ -188,6 +188,7 @@ class PD(NOX.Epetra.Interface.Required,
         """Assign displacement and velocity_x indices for each node"""
         Number_of_Global_Variables = 2 * self.g_nodes
         Global_Indices = self.balanced_map.MyGlobalElements()
+        self.Global_Indices = Global_Indices
 
         XY_Global_Indices = np.zeros(2*len(Global_Indices),dtype = np.int32)
 
@@ -661,6 +662,8 @@ class PD(NOX.Epetra.Interface.Required,
         comm = self.comm
         node_col = self.n_in_col
         neighbors = self.my_neighbors
+        gs = self.grid_spacing
+        num_nodes = self.num_nodes
 
         visc =  1.79e-3
         rho = 1000.0
@@ -673,33 +676,61 @@ class PD(NOX.Epetra.Interface.Required,
 
         #use this to apply upwinded as needed
         #upwind_indicator_state = np.sign(velocity_state_x * ref_pos_state_x + velocity_state_y * ref_pos_state_y)
+        ux_local_overlap_indices = self.ux_local_overlap_indices
+        uy_local_overlap_indices = self.uy_local_overlap_indices
 
 
+        my_ux_overlap = self.vel_overlap[ux_local_overlap_indices]
+        my_uy_overlap = self.vel_overlap[uy_local_overlap_indices]
+        velocity_x = my_ux_overlap
+        velocity_y = my_uy_overlap
+
+        global_id = velocity_x.Map().MyGlobalElements()
+        sorted_indices = np.argsort(global_id)
+
+        sorted_ux = velocity_x[sorted_indices]
+        sorted_uy = velocity_y[sorted_indices]
+        sorted_ux_n = velocity_x_n[sorted_indices]
+        sorted_uy_n = velocity_y_n[sorted_indices]
+        self.sorted_ux = sorted_ux
+        self.sorted_uy = sorted_uy
+        len_ux = sorted_ux.shape[0]
+        a_1 = len_ux / num_nodes
+        sorted_ux = np.reshape(sorted_ux,(num_nodes,a_1))
+        sorted_uy = np.reshape(sorted_uy,(num_nodes,a_1))
+        sorted_pressure = self.sorted_pressure
         #setup empty arrays for velocity residual calc
-        residual_x = np.zeros(len(self.nodes))
-        residual_y = np.zeros(len(self.nodes))
+        sorted_ux_resi = ux_resi[sorted_indices]
+        sorted_ux_resi = np.reshape(ux_resi,(num_nodes,a_1))
+        sorted_uy_resi = uy_resi[sorted_indices]
+        sorted_uy_resi = np.reshape(uy_resi,(num_nodes,a_1))
 
+        for i in range(num_nodes-1):
+            for j in range(a_1-1):
 
-        """ finite differencing calculation starts"""
+                if i!=0 and i!=num_nodes and j!=0 and j !=a_1:
+                    #sorted_pressure[i,j]= self.pressure_const * ((sorted_ux[i,j+1]-sorted_ux[i,j-1])/(2*gs)+(sorted_uy[i+1,j]-sorted_uy[i-1,j])/(2*gs))
+                    term_1_x = sorted_ux[i,j] *(sorted_ux[i,j]-sorted_ux[i-1,j])/gs + sorted_uy[i,j]*(sorted_ux[i,j]-sorted_ux[i,j-1])/gs
+                    term_2_x = (1/rho) * (sorted_pressure[i+1,j]-sorted_pressure[i-1,j])/(2*gs)
+                    term_3_x = -1 * visc *( (sorted_ux[i+1,j] - 2*sorted_ux[i,j]+sorted_ux[i-1,j])/(gs**2.0) + (sorted_ux[i,j+1] - 2.0 * sorted_ux[i,j] + sorted_ux[i,j-1])/(gs**2.0) )
+                    sorted_ux_resi[i,j] = (sorted_ux[i,j] - sorted_ux[i,j])/self.time_stepping + term_1_x + term_2_x + term_3_x
 
-        for n in range(len(self.nodes)):
-            nodex = self.nodes[n][0]
-            nodey = self.nodes[n][1]
-            if nodex != 0 and nodex !=self.length and nodey !=0 and nodey != self.width:
-                residual_x[n] += (velocity_x[n] - velocity_x_n[n])/self.time_stepping
-                residual_x[n] = velocity_x[n]*(velocity_x[n+node_col]-velocity_x[n-node_col])/(2.0*self.grid_spacing) + velocity_y[n]*(velocity_x[n+node_col]-velocity_x[n-node_col])/(2.0*self.grid_spacing)
-                residual_x[n] += (-1.0/rho) * (pressure[n+node_col]- pressure[n-node_col])/(2.0 * self.grid_spacing)
-                residual_x[n] -= visc * (velocity_x[n+node_col]-2*velocity_x[n]+velocity_x[n-node_col])/(self.grid_spacing **2.0)
-                residual_y[n] += (velocity_y[n] - velocity_y_n[n])/self.time_stepping
-                residual_y[n] = velocity_y[n]*(velocity_y[n+1]-velocity_y[n-1])/(2.0*self.grid_spacing) + velocity_x[n]*(velocity_y[n+1]-velocity_y[n-1])/(2.0*self.grid_spacing)
-                residual_y[n] += (-1.0/rho) * (pressure[n+1]- pressure[n-1])/(2.0 * self.grid_spacing)
-                residual_y[n] -= visc * (velocity_y[n+1]-2*velocity_y[n]+velocity_y[n-1])/(self.grid_spacing **2.0)
+                    term_1_y = sorted_uy[i,j] *(sorted_uy[i,j]-sorted_uy[i-1,j])/gs + sorted_ux[i,j]*(sorted_uy[i,j]-sorted_uy[i,j-1])/gs
+                    term_2_y = (1/rho) * (sorted_pressure[i+1,j]-sorted_pressure[i-1,j])/(2*gs)
+                    term_3_y = -1 * visc *( (sorted_uy[i+1,j] - 2*sorted_uy[i,j]+sorted_uy[i-1,j])/(gs**2.0) + (sorted_uy[i,j+1] - 2.0 * sorted_uy[i,j] + sorted_uy[i,j-1])/(gs**2.0) )
+                    sorted_uy_resi[i,j] = (sorted_uy[i,j] - sorted_uy[i,j])/self.time_stepping + term_1_y + term_2_y + term_3_y
+
+        #sorted_ux_resi_reshape = np.zeros(velocity_x.shape)
+        sorted_ux_resi = sorted_ux_resi.flatten()
+        #print sorted_ux_resi.shape
+        #print self.vel_overlap.shape
+        #ttt.sleep(1)
+        #sorted_ux_resi_reshape = sorted_ux_resi[ux_local_overlap_indices]
+
 
 
 
         #Sum the flux contribution from j nodes to i node
-        uy_resi[:] = 0.0
-        ux_resi[:] = 0.0
 	uy_resi[:num_owned] += residual_y
 	ux_resi[:num_owned] += residual_x
 	return
@@ -715,6 +746,8 @@ class PD(NOX.Epetra.Interface.Required,
         try:
 
             volumes = self.my_volumes
+            gs= self.grid_spacing
+            num_nodes = self.num_nodes
             ref_mag_state = self.my_ref_mag_state
             ref_pos_state_x = self.my_ref_pos_state_x
             ref_pos_state_y = self.my_ref_pos_state_y
@@ -731,6 +764,7 @@ class PD(NOX.Epetra.Interface.Required,
 	    uy_local_overlap_indices = self.uy_local_overlap_indices
             #Communicate the velocity_x (previous or boundary condition imposed)
             #to the worker vectors to be used in updating the flow
+            #print self.Global_Indices
 
 
 	    if self.jac_comp == True:
@@ -741,21 +775,35 @@ class PD(NOX.Epetra.Interface.Required,
 		self.vel_overlap.Import(x, vel_overlap_importer,
 			Epetra.Insert)
 
-	    my_ux_overlap = self.vel_overlap[ux_local_overlap_indices]
+            my_ux_overlap = self.vel_overlap[ux_local_overlap_indices]
             my_uy_overlap = self.vel_overlap[uy_local_overlap_indices]
             velocity_x = my_ux_overlap
             velocity_y = my_uy_overlap
 
-	    n = self.balanced_map.NumMyElements()
+            global_id = velocity_x.Map().MyGlobalElements()
+            sorted_indices = np.argsort(global_id)
+            #print self.Global_Indices
+
+            sorted_ux = velocity_x[sorted_indices]
+            sorted_uy = velocity_y[sorted_indices]
+            len_ux = sorted_ux.shape[0]
+            a_1 = len_ux / self.num_nodes
+            sorted_ux = np.reshape(sorted_ux,(num_nodes,a_1))
+            sorted_uy = np.reshape(sorted_uy,(num_nodes,a_1))
+            sorted_pressure = np.reshape(self.pressure,(num_nodes,a_1))
 
 
-
-
-
-
+            for i in range(num_nodes-1):
+                for j in range(a_1-1):
+                    if i!=0 and i!=num_nodes and j!=0 and j !=a_1:
+                        sorted_pressure[i,j]= self.pressure_const * ((sorted_ux[i,j+1]-sorted_ux[i,j-1])/(2*gs)+(sorted_uy[i+1,j]-sorted_uy[i-1,j])/(2*gs))
+            self.sorted_pressure = sorted_pressure
 
             self.compute_velocity_x_y(my_ux_overlap, self.my_ux_resi_overlap,
                     my_uy_overlap, self.my_uy_resi_overlap, flag)
+
+
+
 	    self.my_ux_resi.Export(self.my_ux_resi_overlap, overlap_importer,
 		    Epetra.Add)
             self.my_uy_resi.Export(self.my_uy_resi_overlap,overlap_importer,
@@ -861,7 +909,7 @@ if __name__ == "__main__":
     def main():
 	#Create the PD object
         i=0
-        nodes = 10
+        nodes = 40
 	problem = PD(nodes,10.0)
         problem.n_in_col = nodes
         pressure_const = problem.pressure_const
@@ -1013,16 +1061,7 @@ if __name__ == "__main__":
             velocity_x = problem.velocity_x_n
             velocity_y = problem.velocity_y_n
 
-            #velocity_state_y = ma.masked_array(velocity_y[neighbors]
-            #    -velocity_y[:num_owned,None], mask=neighbors.mask)
-            #velocity_state_x = ma.masked_array(velocity_x[neighbors] -
-            #        velocity_x[:num_owned,None], mask=neighbors.mask)
-            #grad_pressure_x = pressure_const * gamma_p * omega * velocity_state_x * (ref_pos_state_x ) * ref_mag_state_invert
-            #integ_grad_pressure_x = (grad_pressure_x * volumes[neighbors]).sum(axis=1)
-            #grad_pressure_y = pressure_const * gamma_p * omega * velocity_state_y * (ref_pos_state_y ) * ref_mag_state_invert
-            #integ_grad_pressure_y = (grad_pressure_y * volumes[neighbors]).sum(axis=1)
-            #int_pressure =-1.0* (integ_grad_pressure_x + integ_grad_pressure_y)
-            #problem.pressure[:num_owned] = int_pressure #+ 101325
+
 
             p_out = comm.GatherAll(problem.int_pressure).flatten()
             x_out = comm.GatherAll(problem.my_x).flatten()
