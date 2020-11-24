@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import print_function
 import math
 import sys
 
@@ -22,11 +23,11 @@ from PyTrilinos import NOX
 import pylab
 import time as ttt
 
+def isinteger(x):
+    return np.equal(np.mod(x, 1), 0)
 
-#np.set_printoptions(threshold=np.nan)
-## class ##
 class PD(NOX.Epetra.Interface.Required,
-	NOX.Epetra.Interface.Jacobian):
+         NOX.Epetra.Interface.Jacobian):
     """
        Class that inherits from `NOX.Epetra.Interface.Required
        <http://trilinos.sandia.gov/packages/pytrilinos/development/NOX.html>`_
@@ -46,9 +47,9 @@ class PD(NOX.Epetra.Interface.Required,
         self.nodes_numb = num_nodes
         self.width = width
         self.length = length
-	#Print version statement
-        if self.rank == 0: print("PDD.py version 0.4.0zzz\n")
-	# Domain properties
+        #Print version statement
+        if self.rank == 0: print("FD.py version 0.0.1\n")
+        # Domain properties
         #self.iteration = 0
         self.num_nodes = num_nodes
         self.time_stepping =1e-2
@@ -69,13 +70,11 @@ class PD(NOX.Epetra.Interface.Required,
         else:
             self.horizon =1.001 * self.grid_spacing
 
-
         if verbose != None:
             self.verbose = True
         else:
             self.verbose = False
 
-        #Flow properties
 
         #Setup problem grid
         self.create_grid(length, width)
@@ -86,14 +85,15 @@ class PD(NOX.Epetra.Interface.Required,
         self.__init_neighborhood_graph()
         #Load balance
         self.__load_balance()
+        #Initialize the field graph
+        self.__init_field_graph()
         #Initialize jacobian
         self.__init_jacobian()
-	#self.__init_overlap_import_export()
+        #self.__init_overlap_import_export()
         self.__init_overlap_import_export()
         #Initialize grid data structures
         self.__init_grid_data()
-    def isinteger(x):
-        return np.equal(np.mod(x, 1), 0)
+
 
     def create_grid(self, length, width):
         """Private member function that creates initial rectangular grid"""
@@ -104,8 +104,8 @@ class PD(NOX.Epetra.Interface.Required,
             if width > 0.0:
                 grid = np.mgrid[0:length:self.num_nodes*j,
                         0:width:self.aspect_ratio*self.num_nodes*j]
-                self.nodes = np.asarray(zip(grid[0].ravel(),grid[1].ravel()),
-                        dtype=np.double)
+                self.nodes = np.array([grid[0].ravel(),grid[1].ravel()],
+                                      dtype=np.double).T
             else:
                 x = np.r_[0.0:length:self.num_nodes*j]
                 y = np.r_[[0.0] * self.num_nodes]
@@ -122,7 +122,7 @@ class PD(NOX.Epetra.Interface.Required,
         return
 
     def get_neighborhoods(self):
-	""" cKDTree implemented for neighbor search """
+        """ cKDTree implemented for neighbor search """
 
         if self.rank == 0:
             #Create a kdtree to do nearest neighbor search
@@ -131,7 +131,7 @@ class PD(NOX.Epetra.Interface.Required,
             #Get all neighborhoods
             self.neighborhoods = tree.query_ball_point(self.nodes,
                     r=self.horizon, eps=0.0, p=2)
-	else:
+        else:
             #Setup empty data on other ranks
             self.neighborhoods = []
 
@@ -148,96 +148,98 @@ class PD(NOX.Epetra.Interface.Required,
         #This map has all nodes on the 0 rank processor.
         standard_map = Epetra.Map(self.__global_number_of_nodes,
                 len(self.nodes), 0, self.comm)
-	#Compute a list of the lengths of each neighborhood list
+        #Compute a list of the lengths of each neighborhood list
         num_indices_per_row = np.array([ len(item)
             for item in self.neighborhoods ], dtype=np.int32)
-	#Instantiate the graph
+        #Instantiate the graph
         self.neighborhood_graph = Epetra.CrsGraph(Epetra.Copy, standard_map,
                 num_indices_per_row, True)
         #Fill the graph
         for rid,row in enumerate(self.neighborhoods):
-	    self.neighborhood_graph.InsertGlobalIndices(rid,row)
+            self.neighborhood_graph.InsertGlobalIndices(rid,row)
         #Complete fill of graph
         self.neighborhood_graph.FillComplete()
 
-	return
+        return
 
     def __load_balance(self):
         """Load balancing function."""
 
-        #Load balance
-        if self.rank == 0: print "Load balancing neighborhood graph...\n"
-        #Create Teuchos parameter list to pass parameters to ZOLTAN for load
-        #balancing
+        # Load balance
+        if self.rank == 0:
+            print("Load balancing neighborhood graph...\n")
+        # Create Teuchos parameter list to pass parameters to ZOLTAN for load
+        # balancing
         parameter_list = Teuchos.ParameterList()
-        parameter_list.set("Partitioning Method","RCP")
+        parameter_list.set("Partitioning Method", "RCP")
         if not self.verbose:
             parameter_sublist = parameter_list.sublist("ZOLTAN")
             parameter_sublist.set("DEBUG_LEVEL", "0")
-        #Create a partitioner to load balance the graph
+        # Create a partitioner to load balance the graph
         partitioner = Isorropia.Epetra.Partitioner(self.neighborhood_graph,
-                parameter_list)
-        #And a redistributer
+                                                   parameter_list)
+        # And a redistributer
         redistributer = Isorropia.Epetra.Redistributor(partitioner)
 
-        #Redistribute graph and store the map
+        # Redistribute graph and store the map
         self.balanced_neighborhood_graph = redistributer.redistribute(
                 self.neighborhood_graph)
         self.balanced_map = self.balanced_neighborhood_graph.Map()
-        self.g_nodes = self.__global_number_of_nodes
-        """Assign displacement and velocity_x indices for each node"""
-        Number_of_Global_Variables = 2 * self.g_nodes
-        Global_Indices = self.balanced_map.MyGlobalElements()
-        self.Global_Indices = Global_Indices
 
-        XY_Global_Indices = np.zeros(2*len(Global_Indices),dtype = np.int32)
-
-        for index in range(len(Global_Indices)):
-            XY_Global_Indices[2*index] = 2*Global_Indices[index]
-            XY_Global_Indices[2*index+1]= 2*Global_Indices[index]+1
-
-        XY_list = XY_Global_Indices.tolist()
-
-        #create Epetra Map based on node degrees of Freedom
-        self.xy_balanced_map = Epetra.Map(Number_of_Global_Variables,
-                XY_list, 0, self.comm)
-	#Instantiate the corresponding graph
-        self.xy_balanced_neighborhood_graph = Epetra.CrsGraph(Epetra.Copy,
-                self.xy_balanced_map,True)
-        #fill the XYP vaiable graph
-        ### form: [Node N] >>> [X_disp_N, Y_disp_N, velocity_x_N] ###
-        for index in range(len(Global_Indices)):
-            #array of Global indices in neighborhood of each node
-            Global_Index = np.asarray(self.balanced_neighborhood_graph
-                    .ExtractGlobalRowCopy(Global_Indices[index]))
-            #convert global node indices to appropriate xyp indices
-            x_index = 2*Global_Index
-            x_index = np.array(x_index, dtype=np.int32)
-            y_index = 2*Global_Index +1
-            y_index = np.array(y_index, dtype=np.int32)
-
-            #Group and sort xyp indices in 1 array
-            xy_col_indices = np.sort(np.array([x_index,y_index],
-                dtype=np.int32).flatten())
-            #insert colums into balanced graph per appropriate rows
-            self.xy_balanced_neighborhood_graph.InsertGlobalIndices(
-                    2*Global_Indices[index],xy_col_indices)
-            self.xy_balanced_neighborhood_graph.InsertGlobalIndices(
-                    (2*Global_Indices[index]+1),xy_col_indices)
-            #completer fill of balanced grpah per appropriate rows
-
-	self.xy_balanced_neighborhood_graph.FillComplete()
-	#create balanced xyp map form balanced xyp neighborhood graph
-	self.xy_balanced_map = self.xy_balanced_neighborhood_graph.Map()
         return
+
+    def __init_field_graph(self):
+
+        # Assign velocity_x (ux) and velocity_y (uy) indices for each node
+        self.number_of_field_variables = 2 * self.__global_number_of_nodes
+        global_indices = self.balanced_map.MyGlobalElements()
+
+        field_global_indices = np.empty(2 * global_indices.shape[0],
+                                        dtype=np.int32)
+
+        field_global_indices[0:-1:2] = 2 * global_indices
+        field_global_indices[1::2] = 2 * global_indices + 1
+
+        # create Epetra Map based on node degrees of Freedom
+        self.field_balanced_map = Epetra.Map(self.number_of_field_variables,
+                                             field_global_indices.tolist(),
+                                             0, self.comm)
+        # Instantiate the corresponding graph
+        self.balanced_field_graph = Epetra.CrsGraph(Epetra.Copy,
+                                                    self.field_balanced_map,
+                                                    True)
+        # fill the field graph
+        for i in global_indices:
+            # array of global indices in neighborhood of each node
+            global_index_array = (self.balanced_neighborhood_graph
+                                      .ExtractGlobalRowCopy(i))
+            # convert global node indices to appropriate field indices
+            field_index_array = (np.sort(np.r_[2*global_index_array,
+                                               2*global_index_array + 1])
+                                   .astype(np.int32))
+
+            # insert rows into balanced graph per appropriate rows
+            self.balanced_field_graph.InsertGlobalIndices(
+                    2 * i, field_index_array)
+            self.balanced_field_graph.InsertGlobalIndices(
+                    2 * i + 1, field_index_array)
+
+        # complete fill of balanced graph
+        self.balanced_field_graph.FillComplete()
+        # create balanced field map from balanced field neighborhood graph
+        self.balanced_field_map = self.balanced_field_graph.Map()
+
+        return
+
 
     def __init_jacobian(self):
         """
            Initialize Jacobian based on the row and column maps of the balanced
-           neighborhood graph.
+           field graph.
         """
-        xy_graph = self.get_xy_balanced_neighborhood_graph()
-	self.__jac = Epetra.CrsMatrix(Epetra.Copy, xy_graph)
+        field_graph = self.get_balanced_field_graph()
+        self.__jac = Epetra.CrsMatrix(Epetra.Copy, field_graph)
+
         return
 
     def __init_overlap_import_export(self):
@@ -247,290 +249,165 @@ class PD(NOX.Epetra.Interface.Required,
         """
 
         balanced_map = self.get_balanced_map()
-	ps_balanced_map = self.get_balanced_xy_map()
+        field_balanced_map = self.get_balanced_field_map()
 
-	overlap_map = self.get_overlap_map()
-        vel_overlap_map = self.get_xy_overlap_map()
+        overlap_map = self.get_overlap_map()
+        field_overlap_map = self.get_field_overlap_map()
 
-	self.overlap_importer = Epetra.Import( balanced_map, overlap_map)
-	self.overlap_exporter = Epetra.Export(overlap_map,balanced_map)
-	self.xy_overlap_importer = Epetra.Import( ps_balanced_map, vel_overlap_map)
-        self.xy_overlap_exporter = Epetra.Export(vel_overlap_map , ps_balanced_map)
+        self.overlap_importer = Epetra.Import(balanced_map, overlap_map)
+        self.overlap_exporter = Epetra.Export(overlap_map, balanced_map)
+        self.field_overlap_importer = Epetra.Import(field_balanced_map,
+                                                    field_overlap_map)
+        self.field_overlap_exporter = Epetra.Export(field_overlap_map,
+                                                    field_balanced_map)
 
         return
 
     def __init_grid_data(self):
         """
-           Create data structure needed for doing computations
+           Create data structures needed for doing computations
         """
-        #Create some local (to function) convenience variables
+        # Create some local (to function) convenience variables
         balanced_map = self.get_balanced_map()
-	ps_balanced_map = self.get_balanced_xy_map()
+        field_balanced_map = self.get_balanced_field_map()
 
-	overlap_map = self.get_overlap_map()
-        vel_overlap_map = self.get_xy_overlap_map()
-
-	overlap_importer = self.get_overlap_importer()
-	vel_overlap_importer = self.get_xy_overlap_importer()
-
-        neighborhood_graph = self.get_balanced_neighborhood_graph()
-        xy_neighborhood_graph = self.get_xy_balanced_neighborhood_graph()
+        overlap_map = self.get_overlap_map()
+        field_overlap_map = self.get_field_overlap_map()
 
         nodes_numb = self.nodes_numb
-        horizon = self.horizon
 
-
-        #Store the unbalanced nodes in temporary x and y position vectors
+        # Store the unbalanced nodes in temporary vectors
         if self.rank == 0:
-            my_x_temp = self.nodes[:,0]
-            my_y_temp = self.nodes[:,1]
-
-	    my_xy_temp = np.vstack( (my_x_temp, my_y_temp) ).T.flatten()
-	    my_ps_temp = np.vstack( (0*my_x_temp, 0*my_y_temp) ).T.flatten()
-	    #sat = np.linspace(0.4,0.6,len(my_x_temp))
-	    #my_ps_temp[1::2] = sat
+            my_x_temp = self.nodes[:, 0]
+            my_y_temp = self.nodes[:, 1]
+            my_field_temp = np.zeros(self.number_of_field_variables,
+                                     dtype=np.double)
 
         else:
-            my_x_temp = np.array([],dtype=np.double)
-            my_y_temp = np.array([],dtype=np.double)
-            my_xy_temp = np.array([],dtype=np.double)
-            my_ps_temp = np.array([],dtype=np.double)
+            my_x_temp = np.array([], dtype=np.double)
+            my_y_temp = np.array([], dtype=np.double)
+            my_field_temp = np.array([], dtype=np.double)
 
-        #Create a temporary unbalanced map
+        # Create a temporary unbalanced map
         unbalanced_map = Epetra.Map(self.__global_number_of_nodes,
-                len(self.nodes), 0, self.comm)
+                                    self.__global_number_of_nodes, 0,
+                                    self.comm)
 
-	""" Needed to build the combined unbalanced map to export values
-		from head node to all nodes """
-        ps_unbalanced_map = Epetra.Map(2*self.__global_number_of_nodes,
-                2*len(self.nodes), 0, self.comm)
+        # Needed to build the combined unbalanced map to export values
+        # from head node to all nodes
+        field_unbalanced_map = Epetra.Map(self.number_of_field_variables,
+                                          self.number_of_field_variables,
+                                          0, self.comm)
 
-        #Create the unbalanced Epetra vectors that will only be used to import
-        #to the balanced x and y vectors
+        # Create the unbalanced Epetra vectors that will only be used to import
+        # to the balanced x and y vectors
         my_x_unbalanced = Epetra.Vector(unbalanced_map, my_x_temp)
-	my_y_unbalanced = Epetra.Vector(unbalanced_map, my_y_temp)
-	my_xy_unbalanced = Epetra.Vector(ps_unbalanced_map, my_xy_temp)
-	# ADDED Jason#
-	my_ps_unbalanced = Epetra.Vector(ps_unbalanced_map, my_ps_temp)
+        my_y_unbalanced = Epetra.Vector(unbalanced_map, my_y_temp)
+        my_field_unbalanced = Epetra.Vector(field_unbalanced_map,
+                                            my_field_temp)
+
+        # Create the balanced vectors
+        my_x = Epetra.Vector(balanced_map)
+        my_y = Epetra.Vector(balanced_map)
+        my_field = Epetra.Vector(field_balanced_map)
+
+        # Create importers
+        grid_importer = Epetra.Import(balanced_map,
+                                      unbalanced_map)
+        field_importer = Epetra.Import(field_balanced_map,
+                                       field_unbalanced_map)
+
+        grid_overlap_importer = self.get_overlap_importer()
+        field_overlap_importer = self.get_field_overlap_importer()
+
+        # Import the unbalanced data to balanced and overlap data
+        my_x.Import(my_x_unbalanced, grid_importer, Epetra.Insert)
+        my_y.Import(my_y_unbalanced, grid_importer, Epetra.Insert)
+        my_field.Import(my_field_unbalanced, field_importer, Epetra.Insert)
+
+        my_x_overlap = Epetra.Vector(overlap_map)
+        my_y_overlap = Epetra.Vector(overlap_map)
+        my_field_overlap = Epetra.Vector(field_overlap_map)
+
+        my_x_overlap.Import(my_x, grid_overlap_importer, Epetra.Insert)
+        my_y_overlap.Import(my_y, grid_overlap_importer, Epetra.Insert)
+        my_field_overlap.Import(my_field, field_overlap_importer,
+                                Epetra.Insert)
+
+        # Residual vector
+        self.F_fill = Epetra.Vector(field_balanced_map)
+        self.F_fill_overlap = Epetra.Vector(field_overlap_map)
+
+        # Data for sorting/reshaping overlap field vectors
+        self.global_overlap_indices = (self.get_balanced_map()
+                                           .MyGlobalElements())
+        self.sorted_local_indices = np.argsort(self.global_overlap_indices)
+        self.unsorted_local_indices = np.arange(
+               self.global_overlap_indices.shape[0])[self.sorted_local_indices]
+
+        # x stride
+        self.my_x_overlap_stride = (
+             np.argmax(my_x_overlap[self.sorted_local_indices])
+             )
 
 
-	#Create the balanced x and y vectors
-	my_xy = Epetra.Vector(ps_balanced_map)
-
-	#Create an importer
-	ps_importer = Epetra.Import( ps_balanced_map, ps_unbalanced_map )
-
-	#Import the unbalanced data to balanced data
-        my_xy.Import(my_xy_unbalanced, ps_importer, Epetra.Insert)
-
-	my_xy_overlap = Epetra.Vector(vel_overlap_map)
-        my_xy_overlap.Import(my_xy, vel_overlap_importer, Epetra.Insert)
-
-	#Query the graph to get max indices of any neighborhood graph row on
-        #processor (the -1 will make the value correct after the diagonal
-        #entries have been removed) from the graph
-        my_row_max_entries = neighborhood_graph.MaxNumIndices() - 1
-
-        #Query the number of rows in the neighborhood graph on processor
-        my_num_rows = neighborhood_graph.NumMyRows()
-	#Allocate the neighborhood array, fill with -1's as placeholders
-        my_neighbors_temp = np.ones((my_num_rows, my_row_max_entries),
-                dtype=np.int32) * -1
-	#Extract the local node ids from the graph (except on the diagonal)
-        #and fill neighborhood array
-        for rid in range(my_num_rows):
-            #Extract the row and remove the diagonal entry
-            row = np.setdiff1d(neighborhood_graph.ExtractMyRowCopy(rid),
-                    [rid], True)
-	    #Compute the length of this row
-            row_length = len(row)
-            #Fill the neighborhood array
-            my_neighbors_temp[rid, :row_length] = row
-
-        #Convert the neighborhood array to a masked array.  This allows for
-        #fast computations using numpy. Ragged Python neighborhood lists would
-        #prevent this.
-        self.my_neighbors = ma.masked_equal(my_neighbors_temp, -1)
-        self.my_neighbors.harden_mask()
-	#Create distributd vectors needed for the residual calculation
-        #(owned only)
-
-	""" velocity_x and velocity_y combined and set for import routine """
-
-	my_ps = Epetra.Vector( ps_balanced_map)
-	self.F_fill = Epetra.Vector( ps_balanced_map)
-
-	ps_importer = Epetra.Import( ps_balanced_map, ps_unbalanced_map )
-	my_ps.Import( my_ps_unbalanced, ps_importer, Epetra.Insert )
-
-	my_vel_overlap = Epetra.Vector( vel_overlap_map )
-	self.vel_overlap = Epetra.Vector( vel_overlap_map )
-	my_vel_overlap.Import( my_ps, vel_overlap_importer, Epetra.Insert )
-	self.F_fill_overlap = Epetra.Vector( vel_overlap_map)
-
-        #List of Global xyp overlap indices on each rank
-        ps_global_overlap_indices = vel_overlap_map.MyGlobalElements()
-        #Indices of Local x, y, & p overlap indices based on Global indices
-        ux_local_overlap_indices = np.where(ps_global_overlap_indices%2==0)
-        uy_local_overlap_indices = np.where(ps_global_overlap_indices%2==1)
-
-        #Extract x,y, and p overlap [owned+ghost] vectors
-        my_ux_overlap = my_vel_overlap[ux_local_overlap_indices]
-        my_uy_overlap = my_vel_overlap[uy_local_overlap_indices]
-
-        #List of Global xyp indices on each rnak
-        ps_global_indices = ps_balanced_map.MyGlobalElements()
-        #Indices of Local x,y,& p indices based on Global indices
-        ux_local_indices = np.where(ps_global_indices%2==0)
-        uy_local_indices = np.where(ps_global_indices%2==1)
-
-	my_x = my_xy[ux_local_indices]
-	my_y = my_xy[uy_local_indices]
-
-	my_x_overlap = my_xy_overlap[ux_local_overlap_indices]
-	my_y_overlap = my_xy_overlap[uy_local_overlap_indices]
-
-	#Compute reference position state of all nodes
-        self.my_ref_pos_state_x = ma.masked_array(
-                my_x_overlap[[self.my_neighbors]] -
-                my_x_overlap[:my_num_rows,None],
-                mask=self.my_neighbors.mask)
-	#
-	self.my_ref_pos_state_y = ma.masked_array(
-                my_y_overlap[[self.my_neighbors]] -
-                my_y_overlap[:my_num_rows,None],
-                mask=self.my_neighbors.mask)
-
-        #self.right_neighb = np.where(self.my_ref_pos_state_x > 0, 1, 0)
-        #self.left_neighb = np.where(self.my_ref_pos_state_x<0, 1, 0)
-        #self.top_neighb = np.where(self.my_ref_pos_state_y > 0, 1, 0)
-        #self.bott_neighb = np.where(self.my_ref_pos_state_y < 0, 1, 0)
-
-        width = self.width
-        for i in range(len(self.my_ref_pos_state_y[:,1])):
-            for j in range(len(self.my_ref_pos_state_y[1,:])):
-                if self.my_ref_pos_state_y[i,j] > (self.horizon):
-                    self.my_ref_pos_state_y[i,j] =  self.my_ref_pos_state_y[i,j] - width - self.grid_spacing
-                if self.my_ref_pos_state_y[i,j] < -(self.horizon):
-                    self.my_ref_pos_state_y[i,j] =  width + self.grid_spacing + self.my_ref_pos_state_y[i,j]
-	self.my_ref_pos_state_y = ma.masked_array(self.my_ref_pos_state_y,
-                mask=self.my_neighbors.mask)
-	#Compute reference magnitude state of all nodes
-        self.my_ref_mag_state = (self.my_ref_pos_state_x *
-                self.my_ref_pos_state_x + self.my_ref_pos_state_y *
-                self.my_ref_pos_state_y) ** 0.5
-	#Initialize the volumes
-        if self.width==0:
-            self.my_volumes = np.ones_like(my_x_overlap,
-                dtype=np.double) * self.grid_spacing
-	    self.vol = self.grid_spacing
-        else:
-            self.my_volumes = np.ones_like(my_x_overlap,
-                dtype=np.double) * self.grid_spacing * self.grid_spacing
-	    self.vol = self.grid_spacing * self.grid_spacing
 
 
-        #Extract x,y, and p [owned] vectors
-        neighbor = self.my_neighbors
-
-        my_p = my_ps[ux_local_indices]
-        my_s = my_ps[uy_local_indices]
-        self.velocity_y_n = my_vel_overlap[uy_local_overlap_indices]
-        self.pressure = self.velocity_y_n
-        self.velocity_x_n = self.velocity_y_n
-
-	self.my_x = my_x
-	self.my_y = my_y
-	self.my_x_overlap = my_x_overlap
-	self.my_y_overlap = my_y_overlap
-
-	self.my_velocity_x = my_p
-	self.my_velocity_y = my_s
-	self.my_velocity_x_overlap = my_ux_overlap
-	self.my_velocity_y_overlap = my_uy_overlap
-
-	self.my_ps = my_ps
-	self.my_vel_overlap = my_vel_overlap
-
-
-	self.my_ux_resi = Epetra.Vector(balanced_map)
-        self.my_ux_resi_overlap = Epetra.Vector(overlap_map)
-
-
-	"ux_resi equiv. for velocity_y "
-	self.my_uy_resi = Epetra.Vector(balanced_map)
-        self.my_uy_resi_overlap = Epetra.Vector(overlap_map)
-
-
-        self.ux_local_indices = ux_local_indices
-        self.uy_local_indices = uy_local_indices
-        self.ux_local_overlap_indices = ux_local_overlap_indices
-        self.uy_local_overlap_indices = uy_local_overlap_indices
-
-	self.i = 0
-
-	# Establish Boundary Condition #
-	balanced_nodes = zip(self.my_x,self.my_y)
-	hgs = 0.5 * self.grid_spacing
+        # This is a mess, I'm not even attempting...
+        #
+        # Establish Boundary Condition
+        balanced_nodes = zip(self.my_x,self.my_y)
+        hgs = 0.5 * self.grid_spacing
         gs = self.grid_spacing
-	l = self.length
+        l = self.length
         w = self.width
-	num_elements = balanced_map.NumMyElements()
+        num_elements = balanced_map.NumMyElements()
 
 
-        """Right BC with one horizon thickness"""
+        #Right BC with one horizon thickness
         x_min_right = np.where(self.my_x >= l-(3.0*gs+hgs))
         x_max_right = np.where(self.my_y <= l+hgs)
         x_min_right = np.array(x_min_right)
         x_max_right = np.array(x_max_right)
-	BC_Right_Edge = np.intersect1d(x_min_right,x_max_right)
-	BC_Right_Index = np.sort( BC_Right_Edge )
-	BC_Right_fill = np.zeros(len(BC_Right_Edge), dtype=np.int32)
-	BC_Right_fill_ux = np.zeros(len(BC_Right_Edge), dtype=np.int32)
-	BC_Right_fill_uy = np.zeros(len(BC_Right_Edge), dtype=np.int32)
-	for item in range(len( BC_Right_Index ) ):
-	    BC_Right_fill[item] = BC_Right_Index[item]
-	    BC_Right_fill_ux[item] = 2*BC_Right_Index[item]
-	    BC_Right_fill_uy[item] = 2*BC_Right_Index[item]+1
-	self.BC_Right_fill = BC_Right_fill
-	self.BC_Right_fill_ux = BC_Right_fill_ux
-	self.BC_Right_fill_uy = BC_Right_fill_uy
+        BC_Right_Edge = np.intersect1d(x_min_right,x_max_right)
+        BC_Right_Index = np.sort( BC_Right_Edge )
+        BC_Right_fill = np.zeros(len(BC_Right_Edge), dtype=np.int32)
+        BC_Right_fill_ux = np.zeros(len(BC_Right_Edge), dtype=np.int32)
+        BC_Right_fill_uy = np.zeros(len(BC_Right_Edge), dtype=np.int32)
+        for item in range(len( BC_Right_Index ) ):
+            BC_Right_fill[item] = BC_Right_Index[item]
+            BC_Right_fill_ux[item] = 2*BC_Right_Index[item]
+            BC_Right_fill_uy[item] = 2*BC_Right_Index[item]+1
+        self.BC_Right_fill = BC_Right_fill
+        self.BC_Right_fill_ux = BC_Right_fill_ux
+        self.BC_Right_fill_uy = BC_Right_fill_uy
 
-        """ Left BC with one horizon thickness"""
+        #Left BC with one horizon thickness
         x_min_left= np.where(self.my_x >= -hgs)[0]
         x_max_left= np.where(self.my_x <= (3.0*gs+hgs))[0]
-	BC_Left_Edge = np.intersect1d(x_min_left,x_max_left)
+        BC_Left_Edge = np.intersect1d(x_min_left,x_max_left)
         BC_Left_Index = np.sort( BC_Left_Edge )
-	BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
-	BC_Left_fill_ux = np.zeros(len(BC_Left_Edge), dtype=np.int32)
-	BC_Left_fill_uy = np.zeros(len(BC_Left_Edge), dtype=np.int32)
-	for item in range(len(BC_Left_Index)):
-	    BC_Left_fill[item] = BC_Left_Index[item]
-	    BC_Left_fill_ux[item] = 2*BC_Left_Index[item]
-	    BC_Left_fill_uy[item] = 2*BC_Left_Index[item]+1
-	self.BC_Left_fill = BC_Left_fill
-	self.BC_Left_fill_ux = BC_Left_fill_ux
-	self.BC_Left_fill_uy = BC_Left_fill_uy
-        """ Left BC with two horizon thickness"""
+        self.BC_Left_fill_uy = BC_Left_fill_uy
+        #Left BC with two horizon thickness"""
         x_min_left= np.where(self.my_x >= -hgs)[0]
         x_max_left= np.where(self.my_x <= (0.1))[0]
-	BC_Left_Edge_double = np.intersect1d(x_min_left,x_max_left)
+        BC_Left_Edge_double = np.intersect1d(x_min_left,x_max_left)
         BC_Left_Index_double = np.sort( BC_Left_Edge_double )
-	BC_Left_fill_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
-	BC_Left_fill_ux_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
-	BC_Left_fill_uy_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
-	for item in range(len(BC_Left_Index_double)):
-	    BC_Left_fill_double[item] = BC_Left_Index_double[item]
-	    BC_Left_fill_ux_double[item] = 2*BC_Left_Index_double[item]
-	    BC_Left_fill_uy_double[item] = 2*BC_Left_Index_double[item]+1
-	self.BC_Left_fill_double = BC_Left_fill_double
-	self.BC_Left_fill_ux_double = BC_Left_fill_ux_double
-	self.BC_Left_fill_uy_double = BC_Left_fill_uy_double
-        """ inner left BC to simulate disturbance"""
+        BC_Left_fill_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
+        BC_Left_fill_ux_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
+        BC_Left_fill_uy_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
+        for item in range(len(BC_Left_Index_double)):
+            BC_Left_fill_double[item] = BC_Left_Index_double[item]
+            BC_Left_fill_ux_double[item] = 2*BC_Left_Index_double[item]
+            BC_Left_fill_uy_double[item] = 2*BC_Left_Index_double[item]+1
+        self.BC_Left_fill_double = BC_Left_fill_double
+        self.BC_Left_fill_ux_double = BC_Left_fill_ux_double
+        self.BC_Left_fill_uy_double = BC_Left_fill_uy_double
+        #inner left BC to simulate disturbance"""
         x_min_left_dist= np.where(self.my_x >= (-3.0*gs+hgs))[0]
         x_middle_left_dist= np.where(self.my_x <= (0.105))[0]
         x_max_left_dist= np.where(self.my_x <= (0.1))[0]
-	#x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
+        #x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
         x_column = np.intersect1d(x_min_left_dist, x_max_left_dist)
         y_left_dist_min = np.where(self.my_y>= 0.0*gs)
         y_left_dist_max = np.where(self.my_y<= ((l*self.aspect_ratio)-0.0*gs))
@@ -551,46 +428,46 @@ class PD(NOX.Epetra.Interface.Required,
                     BC_Left_Edge_dist = np.append(BC_Left_Edge_dist, everynode)
         #BC_Left_Edge_dist = np.intersect1d(BC_Left_Edge_dist , x_middle_left_dist)
         BC_Left_Index_dist = np.sort( BC_Left_Edge_dist )
-	BC_Left_fill_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
-	BC_Left_fill_ux_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
-	BC_Left_fill_uy_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
-	for item in range(len(BC_Left_Index_dist)):
-	    BC_Left_fill_dist[item] = BC_Left_Index_dist[item]
-	    BC_Left_fill_ux_dist[item] = 2*BC_Left_Index_dist[item]
-	    BC_Left_fill_uy_dist[item] = 2*BC_Left_Index_dist[item]+1
-	self.BC_Left_fill_dist = BC_Left_fill_dist
-	self.BC_Left_fill_ux_dist = BC_Left_fill_ux_dist
-	self.BC_Left_fill_uy_dist = BC_Left_fill_uy_dist
-        """Bottom BC with one horizon thickness"""
+        BC_Left_fill_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
+        BC_Left_fill_ux_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
+        BC_Left_fill_uy_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
+        for item in range(len(BC_Left_Index_dist)):
+            BC_Left_fill_dist[item] = BC_Left_Index_dist[item]
+            BC_Left_fill_ux_dist[item] = 2*BC_Left_Index_dist[item]
+            BC_Left_fill_uy_dist[item] = 2*BC_Left_Index_dist[item]+1
+        self.BC_Left_fill_dist = BC_Left_fill_dist
+        self.BC_Left_fill_ux_dist = BC_Left_fill_ux_dist
+        self.BC_Left_fill_uy_dist = BC_Left_fill_uy_dist
+        #Bottom BC with one horizon thickness"""
         ymin_bottom = np.where(self.my_y >= (-hgs))[0]
         ymax_bottom = np.where(self.my_y <= (3.0*gs+hgs))[0]
         BC_Bottom_Edge = np.intersect1d(ymin_bottom,ymax_bottom)
         BC_Bottom_fill = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
-	BC_Bottom_fill_ux = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
-	BC_Bottom_fill_uy = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
+        BC_Bottom_fill_ux = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
+        BC_Bottom_fill_uy = np.zeros(len(BC_Bottom_Edge), dtype=np.int32)
         for item in range(len( BC_Bottom_Edge)):
-	    BC_Bottom_fill[item] = BC_Bottom_Edge[item]
-	    BC_Bottom_fill_ux[item] = 2*BC_Bottom_Edge[item]
-	    BC_Bottom_fill_uy[item] = 2*BC_Bottom_Edge[item]+1
+            BC_Bottom_fill[item] = BC_Bottom_Edge[item]
+            BC_Bottom_fill_ux[item] = 2*BC_Bottom_Edge[item]
+            BC_Bottom_fill_uy[item] = 2*BC_Bottom_Edge[item]+1
         self.BC_Bottom_fill = BC_Bottom_fill
-	self.BC_Bottom_fill_ux = BC_Bottom_fill_ux
-	self.BC_Bottom_fill_uy = BC_Bottom_fill_uy
+        self.BC_Bottom_fill_ux = BC_Bottom_fill_ux
+        self.BC_Bottom_fill_uy = BC_Bottom_fill_uy
 
         #TOP BC with one horizon thickness
         ymin_top = np.where(self.my_y >= w-(3.0*gs+hgs))[0]
         ymax_top= np.where(self.my_y <= w+hgs)[0]
         BC_Top_Edge = np.intersect1d(ymin_top,ymax_top)
         BC_Top_fill = np.zeros(len(BC_Top_Edge), dtype=np.int32)
-	BC_Top_fill_ux = np.zeros(len(BC_Top_Edge), dtype=np.int32)
+        BC_Top_fill_ux = np.zeros(len(BC_Top_Edge), dtype=np.int32)
         BC_Top_fill_uy = np.zeros(len(BC_Top_Edge), dtype=np.int32)
         for item in range(len( BC_Top_Edge ) ):
-	    BC_Top_fill[item] = BC_Top_Edge[item]
-	    BC_Top_fill_ux[item] = 2*BC_Top_Edge[item]
-	    BC_Top_fill_uy[item] = 2*BC_Top_Edge[item]+1
+            BC_Top_fill[item] = BC_Top_Edge[item]
+            BC_Top_fill_ux[item] = 2*BC_Top_Edge[item]
+            BC_Top_fill_uy[item] = 2*BC_Top_Edge[item]+1
         self.BC_Top_fill = BC_Top_fill
-	self.BC_Top_fill_ux = BC_Top_fill_ux
-	self.BC_Top_fill_uy = BC_Top_fill_uy
-        """#center  bc with two horizon radius"""
+        self.BC_Top_fill_ux = BC_Top_fill_ux
+        self.BC_Top_fill_uy = BC_Top_fill_uy
+        #center  bc with two horizon radius
         center = 10.0 * (((nodes_numb /2.0)-1.0)/(nodes_numb-1.0))
         size = np.size(self.my_x)
         hl = l/10
@@ -613,7 +490,7 @@ class PD(NOX.Epetra.Interface.Required,
         c_2=np.intersect1d(c_2,central_nodes)
 
         center_2_neighb_fill_ux = np.zeros(len(c_2), dtype=np.int32)
-	center_2_neighb_fill_uy = np.zeros(len(c_2), dtype=np.int32)
+        center_2_neighb_fill_uy = np.zeros(len(c_2), dtype=np.int32)
         for item in range(len(c_2)):
             center_2_neighb_fill_ux[item] = c_2[item]*2.0
             center_2_neighb_fill_uy[item]=c_2[item]*2.0+1.0
@@ -624,116 +501,35 @@ class PD(NOX.Epetra.Interface.Required,
         """ Left side of grid """
         x_min= np.where(self.my_x >=-hgs)[0]
         x_max= np.where(self.my_x <= (l - (4.0 * gs + hgs)))[0]
-	BC_Edge = np.intersect1d(x_min,x_max)
+        BC_Edge = np.intersect1d(x_min,x_max)
         BC_Index = np.sort( BC_Edge )
-	BC_fill = np.zeros(len(BC_Edge), dtype=np.int32)
-	BC_fill_ux = np.zeros(len(BC_Edge), dtype=np.int32)
-	BC_fill_uy = np.zeros(len(BC_Edge), dtype=np.int32)
-	for item in range(len(BC_Index)):
-	    BC_fill[item] = BC_Index[item]
-	    BC_fill_ux[item] = 2*BC_Index[item]
-	    BC_fill_uy[item] = 2*BC_Index[item]+1
-	self.BC_fill_left_end = BC_fill
-	self.BC_fill_left_end_p = BC_fill_ux
-	self.BC_fill_left_end_s = BC_fill_uy
+        BC_fill = np.zeros(len(BC_Edge), dtype=np.int32)
+        BC_fill_ux = np.zeros(len(BC_Edge), dtype=np.int32)
+        BC_fill_uy = np.zeros(len(BC_Edge), dtype=np.int32)
+        for item in range(len(BC_Index)):
+            BC_fill[item] = BC_Index[item]
+            BC_fill_ux[item] = 2*BC_Index[item]
+            BC_fill_uy[item] = 2*BC_Index[item]+1
+        self.BC_fill_left_end = BC_fill
+        self.BC_fill_left_end_p = BC_fill_ux
+        self.BC_fill_left_end_s = BC_fill_uy
         """ Left side of grid """
         x_min= np.where(self.my_x >=(4.0*gs+hgs))[0]
         x_max= np.where(self.my_x <= (l - (4.0* gs+hgs)))[0]
-	BC_Edge = np.intersect1d(x_min,x_max)
+        BC_Edge = np.intersect1d(x_min,x_max)
         BC_Index = np.sort( BC_Edge )
-	BC_fill = np.zeros(len(BC_Edge), dtype=np.int32)
-	BC_fill_ux = np.zeros(len(BC_Edge), dtype=np.int32)
-	BC_fill_uy = np.zeros(len(BC_Edge), dtype=np.int32)
-	for item in range(len(BC_Index)):
-	    BC_fill[item] = BC_Index[item]
-	    BC_fill_ux[item] = 2*BC_Index[item]
-	    BC_fill_uy[item] = 2*BC_Index[item]+1
-	self.BC_fill_right_end = BC_fill
-	self.BC_fill_right_end_p = BC_fill_ux
-	self.BC_fill_right_end_s = BC_fill_uy
+        BC_fill = np.zeros(len(BC_Edge), dtype=np.int32)
+        BC_fill_ux = np.zeros(len(BC_Edge), dtype=np.int32)
+        BC_fill_uy = np.zeros(len(BC_Edge), dtype=np.int32)
+        for item in range(len(BC_Index)):
+            BC_fill[item] = BC_Index[item]
+            BC_fill_ux[item] = 2*BC_Index[item]
+            BC_fill_uy[item] = 2*BC_Index[item]+1
+        self.BC_fill_right_end = BC_fill
+        self.BC_fill_right_end_p = BC_fill_ux
+        self.BC_fill_right_end_s = BC_fill_uy
         return
 
-    def compute_velocity_x_y(self, velocity_x, ux_resi, velocity_y, uy_resi, flag):
-        """
-            Computes the peridynamic ux_resi due to non-local velocity_x
-            differentials. Uses the formulation from Kayitar, Foster, & Sharma.
-        """
-        #print "3"
-        comm = self.comm
-        node_col = self.n_in_col
-        neighbors = self.my_neighbors
-        gs = self.grid_spacing
-        num_nodes = self.num_nodes
-
-        visc =  1.79e-3
-        rho = 1000.0
-        pressure = self.pressure
-
-        #updating previous step's velocity_y values
-        velocity_y_n = self.velocity_y_n
-        velocity_x_n = self.velocity_x_n
-
-
-        #use this to apply upwinded as needed
-        #upwind_indicator_state = np.sign(velocity_state_x * ref_pos_state_x + velocity_state_y * ref_pos_state_y)
-        ux_local_overlap_indices = self.ux_local_overlap_indices
-        uy_local_overlap_indices = self.uy_local_overlap_indices
-
-
-        my_ux_overlap = self.vel_overlap[ux_local_overlap_indices]
-        my_uy_overlap = self.vel_overlap[uy_local_overlap_indices]
-        velocity_x = my_ux_overlap
-        velocity_y = my_uy_overlap
-
-        global_id = velocity_x.Map().MyGlobalElements()
-        sorted_indices = np.argsort(global_id)
-
-        sorted_ux = velocity_x[sorted_indices]
-        sorted_uy = velocity_y[sorted_indices]
-        sorted_ux_n = velocity_x_n[sorted_indices]
-        sorted_uy_n = velocity_y_n[sorted_indices]
-        self.sorted_ux = sorted_ux
-        self.sorted_uy = sorted_uy
-        len_ux = sorted_ux.shape[0]
-        a_1 = len_ux / num_nodes
-        sorted_ux = np.reshape(sorted_ux,(num_nodes,a_1))
-        sorted_uy = np.reshape(sorted_uy,(num_nodes,a_1))
-        sorted_pressure = self.sorted_pressure
-        #setup empty arrays for velocity residual calc
-        sorted_ux_resi = ux_resi[sorted_indices]
-        sorted_ux_resi = np.reshape(ux_resi,(num_nodes,a_1))
-        sorted_uy_resi = uy_resi[sorted_indices]
-        sorted_uy_resi = np.reshape(uy_resi,(num_nodes,a_1))
-
-        for i in range(num_nodes-1):
-            for j in range(a_1-1):
-
-                if i!=0 and i!=num_nodes and j!=0 and j !=a_1:
-                    #sorted_pressure[i,j]= self.pressure_const * ((sorted_ux[i,j+1]-sorted_ux[i,j-1])/(2*gs)+(sorted_uy[i+1,j]-sorted_uy[i-1,j])/(2*gs))
-                    term_1_x = sorted_ux[i,j] *(sorted_ux[i,j]-sorted_ux[i-1,j])/gs + sorted_uy[i,j]*(sorted_ux[i,j]-sorted_ux[i,j-1])/gs
-                    term_2_x = (1/rho) * (sorted_pressure[i+1,j]-sorted_pressure[i-1,j])/(2*gs)
-                    term_3_x = -1 * visc *( (sorted_ux[i+1,j] - 2*sorted_ux[i,j]+sorted_ux[i-1,j])/(gs**2.0) + (sorted_ux[i,j+1] - 2.0 * sorted_ux[i,j] + sorted_ux[i,j-1])/(gs**2.0) )
-                    sorted_ux_resi[i,j] = (sorted_ux[i,j] - sorted_ux[i,j])/self.time_stepping + term_1_x + term_2_x + term_3_x
-
-                    term_1_y = sorted_uy[i,j] *(sorted_uy[i,j]-sorted_uy[i-1,j])/gs + sorted_ux[i,j]*(sorted_uy[i,j]-sorted_uy[i,j-1])/gs
-                    term_2_y = (1/rho) * (sorted_pressure[i+1,j]-sorted_pressure[i-1,j])/(2*gs)
-                    term_3_y = -1 * visc *( (sorted_uy[i+1,j] - 2*sorted_uy[i,j]+sorted_uy[i-1,j])/(gs**2.0) + (sorted_uy[i,j+1] - 2.0 * sorted_uy[i,j] + sorted_uy[i,j-1])/(gs**2.0) )
-                    sorted_uy_resi[i,j] = (sorted_uy[i,j] - sorted_uy[i,j])/self.time_stepping + term_1_y + term_2_y + term_3_y
-
-        #sorted_ux_resi_reshape = np.zeros(velocity_x.shape)
-        sorted_ux_resi = sorted_ux_resi.flatten()
-        #print sorted_ux_resi.shape
-        #print self.vel_overlap.shape
-        #ttt.sleep(1)
-        #sorted_ux_resi_reshape = sorted_ux_resi[ux_local_overlap_indices]
-
-
-
-
-        #Sum the flux contribution from j nodes to i node
-	uy_resi[:num_owned] += residual_y
-	ux_resi[:num_owned] += residual_x
-	return
 
     ###########################################################################
     ####################### NOX Required Functions ############################
@@ -745,73 +541,41 @@ class PD(NOX.Epetra.Interface.Required,
         """
         try:
 
-            volumes = self.my_volumes
-            gs= self.grid_spacing
-            num_nodes = self.num_nodes
-            ref_mag_state = self.my_ref_mag_state
-            ref_pos_state_x = self.my_ref_pos_state_x
-            ref_pos_state_y = self.my_ref_pos_state_y
-            overlap_importer = self.get_overlap_importer()
-	    vel_overlap_importer = self.get_xy_overlap_importer()
-            neighbors = self.my_neighbors
-            omega = self.omega
-            gamma_p = self.gamma_p
-	    neighborhood_graph = self.get_balanced_neighborhood_graph()
-	    num_owned = neighborhood_graph.NumMyRows()
-	    ux_local_indices = self.ux_local_indices
-	    uy_local_indices = self.uy_local_indices
-	    ux_local_overlap_indices = self.ux_local_overlap_indices
-	    uy_local_overlap_indices = self.uy_local_overlap_indices
-            #Communicate the velocity_x (previous or boundary condition imposed)
-            #to the worker vectors to be used in updating the flow
-            #print self.Global_Indices
+            #Import off processor data
+            self.my_field_overlap.Import(x, self.get_field_overlap_importer(),
+                                        Epetra.Insert)
+
+            # Theses are the sorted and reshaped overlap vectors
+            my_ux = (self.my_field_overlap[:-1:2][self.sorted_local_indices]
+                                            .reshape(-1, self.my_x_overlap_stride))
+            my_uy = (self.my_field_overlap[1::2][self.sorted_local_indices]
+                                            .reshape(-1, self.my_x_overlap_stride))
+            
+            # Now we'll compute the residual
+            residual = (x - self.my_field)  / self.delta_t
+
+            # u · ∇u term, with central difference approximation of gradient
+            term1_x = my_ux[:, 1:-1] * (my_ux[:, :-2] - my_ux[:, 2:]) / 2.0 / self.delta_x
+            term1_y = my_uy[1:-1, :] * (my_uy[:-2, :] - my_uy[2:, :]) / 2.0 / self.delta_y
+
+            # Add these terms into the residual
+            residual[:-1:2] += term1_x.flatten()[self.unsorted_local_indices]
+            residual[1::2]  += term1_y.flatten()[self.unsorted_local_indices]
 
 
-	    if self.jac_comp == True:
-		self.vel_overlap = x
-		x = x[:int(2.0*num_owned)]
-
-	    if self.jac_comp == False:
-		self.vel_overlap.Import(x, vel_overlap_importer,
-			Epetra.Insert)
-
-            my_ux_overlap = self.vel_overlap[ux_local_overlap_indices]
-            my_uy_overlap = self.vel_overlap[uy_local_overlap_indices]
-            velocity_x = my_ux_overlap
-            velocity_y = my_uy_overlap
-
-            global_id = velocity_x.Map().MyGlobalElements()
-            sorted_indices = np.argsort(global_id)
-            #print self.Global_Indices
-
-            sorted_ux = velocity_x[sorted_indices]
-            sorted_uy = velocity_y[sorted_indices]
-            len_ux = sorted_ux.shape[0]
-            a_1 = len_ux / self.num_nodes
-            sorted_ux = np.reshape(sorted_ux,(num_nodes,a_1))
-            sorted_uy = np.reshape(sorted_uy,(num_nodes,a_1))
-            sorted_pressure = np.reshape(self.pressure,(num_nodes,a_1))
+            # Do the rest of the terms
 
 
-            for i in range(num_nodes-1):
-                for j in range(a_1-1):
-                    if i!=0 and i!=num_nodes and j!=0 and j !=a_1:
-                        sorted_pressure[i,j]= self.pressure_const * ((sorted_ux[i,j+1]-sorted_ux[i,j-1])/(2*gs)+(sorted_uy[i+1,j]-sorted_uy[i-1,j])/(2*gs))
-            self.sorted_pressure = sorted_pressure
+            # Put residual into my_field
+            num_owned = self.get_neighborhood_graph().NumMyRows()
+            self.F_fill_overlap[:] = residual
 
-            self.compute_velocity_x_y(my_ux_overlap, self.my_ux_resi_overlap,
-                    my_uy_overlap, self.my_uy_resi_overlap, flag)
+            # Export off-processor contributions to the residual
+            self.F_fill_overlap.Export(self.F_fill,
+                                 self.get_field_overlap_importer,
+                                 Epetra.Add)
 
-
-
-	    self.my_ux_resi.Export(self.my_ux_resi_overlap, overlap_importer,
-		    Epetra.Add)
-            self.my_uy_resi.Export(self.my_uy_resi_overlap,overlap_importer,
-                   Epetra.Add)
-
-
-
-	    ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
+            ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
             self.F_fill_overlap[ux_local_overlap_indices]=self.my_ux_resi_overlap
             self.F_fill_overlap[uy_local_overlap_indices]=self.my_uy_resi_overlap
             #Export F fill from [ghost+owned] to [owned]
@@ -831,9 +595,9 @@ class PD(NOX.Epetra.Interface.Required,
 
             self.i = self.i + 1
 
-        except Exception, e:
-            print "Exception in PD.computeF method"
-            print e
+        except (Exception, e):
+            print("Exception in PD.computeF method")
+            print(e)
 
             return False
 
@@ -842,64 +606,71 @@ class PD(NOX.Epetra.Interface.Required,
 
     # Compute Jacobian as required by NOX
     def computeJacobian(self, x, Jac):
-	try:
-	    #print " Jacobian called "
+        try:
+            #print " Jacobian called "
             pass
 
-	except Exception, e:
-	    print "Exception in PD.computeJacobian method"
-	    print e
-	    return False
+        except (Exception, e):
+            print("Exception in PD.computeJacobian method")
+            print(e)
+            return False
 
-	return True
+        return True
 
 
     #Getter functions
     def get_balanced_map(self):
         return self.balanced_map
 
-    # ADDED Jason#
-    def get_balanced_xy_map(self):
-        return self.xy_balanced_map
+    def get_balanced_field_map(self):
+        return self.balanced_field_map
 
     def get_overlap_map(self):
         return self.balanced_neighborhood_graph.ColMap()
-    def get_xy_overlap_map(self):
-        return self.xy_balanced_neighborhood_graph.ColMap()
+
+    def get_field_overlap_map(self):
+        return self.balanced_field_graph.ColMap()
 
     def get_overlap_importer(self):
         return self.balanced_neighborhood_graph.Importer()
         #return self.overlap_importer
 
-    def get_xy_overlap_importer(self):
-        return self.xy_balanced_neighborhood_graph.Importer()
-        #return self.xy_overlap_importer
+    def get_field_overlap_importer(self):
+        return self.balanced_field_graph.Importer()
+        #return self.field_overlap_importer
 
     def get_overlap_exporter(self):
         return self.balanced_neighborhood_graph.Exporter()
         #return self.overlap_exporter
-    def get_xy_overlap_exporter(self):
+
+    def get_field_overlap_exporter(self):
         return self.balanced_neighborhood_graph.Exporter()
         #return self.vel_overlap_exporter
+
     def get_balanced_neighborhood_graph(self):
         return self.balanced_neighborhood_graph
-    def get_xy_balanced_neighborhood_graph(self):
-        return self.xy_balanced_neighborhood_graph
+
+    def get_balanced_field_graph(self):
+        return self.balanced_field_graph
+
     def get_neighborhood_graph(self):
         return self.neighborhood_graph
+
     def get_jacobian(self):
         return self.__jac
+
     def get_solution_velocity_x(self):
         return self.my_velocity_x
+
     #rambod
     def get_solution_velocity_y(self):
         return self.my_velocity_y
     def get_x(self):
         return self.my_x
     def get_y(self):
-	return self.my_y
+        return self.my_y
     def get_ps_init(self):
-	return self.my_ps
+        return self.my_ps
     def get_comm(self):
         return self.comm
 
@@ -907,16 +678,16 @@ class PD(NOX.Epetra.Interface.Required,
 if __name__ == "__main__":
 
     def main():
-	#Create the PD object
+        #Create the PD object
         i=0
         nodes = 40
-	problem = PD(nodes,10.0)
+        problem = PD(nodes, 10.0)
         problem.n_in_col = nodes
         pressure_const = problem.pressure_const
         comm = problem.comm
-	#Define the initial guess
-	init_ps_guess = problem.get_ps_init()
-   	ps_graph = problem.get_xy_balanced_neighborhood_graph()
+        #Define the initial guess
+        init_ps_guess = problem.get_ps_init()
+        ps_graph = problem.get_balanced_field_graph()
         ux_local_indices = problem.ux_local_indices
         uy_local_indices = problem.uy_local_indices
         time_stepping = problem.time_stepping
@@ -926,7 +697,7 @@ if __name__ == "__main__":
         ref_pos_state_x = problem.my_ref_pos_state_x
         ref_pos_state_y = problem.my_ref_pos_state_y
         ref_mag_state = problem.my_ref_mag_state
-	neighborhood_graph = problem.get_balanced_neighborhood_graph()
+        neighborhood_graph = problem.get_balanced_neighborhood_graph()
         num_owned = neighborhood_graph.NumMyRows()
         neighbors = problem.my_neighbors
         node_number = neighbors.shape[0]
@@ -947,8 +718,8 @@ if __name__ == "__main__":
             ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
 
 
-        """ ################ choose the right kernel function ####### """
-        """ for omega = 1/ (r/horizon) """
+        ################ choose the right kernel function ####### """
+        #for omega = 1/ (r/horizon) """
         #omega = one
         #omega = one - (ref_mag_state/horizon)
         #problem.omega = omega
@@ -956,26 +727,26 @@ if __name__ == "__main__":
         #print omega.shape
         #plt.plot(omega[:,10])
         #plt.show()
-        """ omega = 1 """
+        #omega = 1
         omega =one
         problem.omega = omega
         problem.omega = omega
         linear = 0
-        """ omega from delgosha """
+        #omega from delgosha """
         #x = ref_mag_state / horizon
         #omega = 34.53* (x**6) +-87.89*(x**5) + 66.976 * (x**4) - 3.9475 * (x**3) - 11.756 * (x**2) + 1.1364 * x + 0.9798
         #problem.omega = omega
         #linear = 2
 
-	vel_overlap_importer = problem.get_xy_overlap_importer()
-        vel_overlap_map = problem.get_xy_overlap_map()
+        vel_overlap_importer = problem.get_field_overlap_importer()
+        field_overlap_map = problem.get_field_overlap_map()
         my_vel_overlap = problem.my_vel_overlap
-	#Initialize and change some NOX settings
-	nl_params = NOX.Epetra.defaultNonlinearParameters(problem.comm,2)
-	nl_params["Line Search"]["Method"] = "Polynomial"
-	ls_params = nl_params["Linear Solver"]
-	ls_params["Preconditioner Operator"] = "Use Jacobian"
-	ls_params["Preconditioner"] = "New Ifpack"
+        #Initialize and change some NOX settings
+        nl_params = NOX.Epetra.defaultNonlinearParameters(problem.comm,2)
+        nl_params["Line Search"]["Method"] = "Polynomial"
+        ls_params = nl_params["Linear Solver"]
+        ls_params["Preconditioner Operator"] = "Use Jacobian"
+        ls_params["Preconditioner"] = "New Ifpack"
         #Establish parameters for ParaView Visualization
         VIZ_PATH='/Applications/paraview.app/Contents/MacOS/paraview'
         vector_variables = ['displacement']
@@ -1021,11 +792,11 @@ if __name__ == "__main__":
         #
         end_range=5000000
         for i in range(end_range):
-            print i
+            print(i)
             """ USE Finite Difference Coloring to compute jacobian.  Distinction is made
                     between fdc and solver, as fdc handles export to overlap automatically """
-	    #if i>5:
-	    #	problem.time_stepping =0.5*0.000125
+            #if i>5:
+            #problem.time_stepping =0.5*0.000125
             problem.jac_comp = True
             fdc_velocity_x = NOX.Epetra.FiniteDifferenceColoring(
                    nl_params, problem, init_ps_guess,
@@ -1035,12 +806,12 @@ if __name__ == "__main__":
             jacobian.FillComplete()
             problem.jac_comp = False
             #Create NOX solver object, solve for velocity_x and velocity_y
-	    if i<1:
-            	solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
+            if i<1:
+                solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
                         problem, jacobian,nlParams = nl_params, maxIters=1,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 8.0e-7, relTol = None)
-	    else:
-            	solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
+            else:
+                solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
                     problem, jacobian,nlParams = nl_params, maxIters=100,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 1.0e-6, relTol = None)
             solveStatus = solver.solve()
