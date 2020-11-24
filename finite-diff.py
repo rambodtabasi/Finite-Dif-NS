@@ -339,7 +339,7 @@ class PD(NOX.Epetra.Interface.Required,
         self.F_fill_overlap = Epetra.Vector(field_overlap_map)
 
         # Data for sorting/reshaping overlap field vectors
-        self.global_overlap_indices = (self.get_balanced_map()
+        self.global_overlap_indices = (self.get_overlap_map()
                                            .MyGlobalElements())
         self.sorted_local_indices = np.argsort(self.global_overlap_indices)
         self.unsorted_local_indices = np.arange(
