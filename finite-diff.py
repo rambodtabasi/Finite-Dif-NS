@@ -54,6 +54,7 @@ class PD(NOX.Epetra.Interface.Required,
         self.num_nodes = num_nodes
         self.time_stepping =1e-2
         self.pressure_const = 1e-2
+        self.UX = 0.157
         self.grid_spacing = float(length) / (num_nodes - 1)
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
@@ -351,7 +352,8 @@ class PD(NOX.Epetra.Interface.Required,
              )
 
 
-
+        self.my_x = my_x
+        self.my_y = my_y
 
         # This is a mess, I'm not even attempting...
         #
@@ -387,57 +389,22 @@ class PD(NOX.Epetra.Interface.Required,
         x_max_left= np.where(self.my_x <= (3.0*gs+hgs))[0]
         BC_Left_Edge = np.intersect1d(x_min_left,x_max_left)
         BC_Left_Index = np.sort( BC_Left_Edge )
+
+        BC_Left_fill = np.zeros(len(BC_Left_Edge), dtype=np.int32)
+        BC_Left_fill_ux = np.zeros(len(BC_Left_Edge), dtype=np.int32)
+        BC_Left_fill_uy = np.zeros(len(BC_Left_Edge), dtype=np.int32)
+        for item in range(len( BC_Left_Index ) ):
+            BC_Left_fill[item] = BC_Left_Index[item]
+            BC_Left_fill_ux[item] = 2*BC_Left_Index[item]
+            BC_Left_fill_uy[item] = 2*BC_Left_Index[item]+1
+
+
         self.BC_Left_fill_uy = BC_Left_fill_uy
-        #Left BC with two horizon thickness"""
-        x_min_left= np.where(self.my_x >= -hgs)[0]
-        x_max_left= np.where(self.my_x <= (0.1))[0]
-        BC_Left_Edge_double = np.intersect1d(x_min_left,x_max_left)
-        BC_Left_Index_double = np.sort( BC_Left_Edge_double )
-        BC_Left_fill_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
-        BC_Left_fill_ux_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
-        BC_Left_fill_uy_double = np.zeros(len(BC_Left_Edge_double), dtype=np.int32)
-        for item in range(len(BC_Left_Index_double)):
-            BC_Left_fill_double[item] = BC_Left_Index_double[item]
-            BC_Left_fill_ux_double[item] = 2*BC_Left_Index_double[item]
-            BC_Left_fill_uy_double[item] = 2*BC_Left_Index_double[item]+1
-        self.BC_Left_fill_double = BC_Left_fill_double
-        self.BC_Left_fill_ux_double = BC_Left_fill_ux_double
-        self.BC_Left_fill_uy_double = BC_Left_fill_uy_double
-        #inner left BC to simulate disturbance"""
-        x_min_left_dist= np.where(self.my_x >= (-3.0*gs+hgs))[0]
-        x_middle_left_dist= np.where(self.my_x <= (0.105))[0]
-        x_max_left_dist= np.where(self.my_x <= (0.1))[0]
-        #x_left_dist = np.intersect1d(x_min_left_dist,x_max_left_dist)
-        x_column = np.intersect1d(x_min_left_dist, x_max_left_dist)
-        y_left_dist_min = np.where(self.my_y>= 0.0*gs)
-        y_left_dist_max = np.where(self.my_y<= ((l*self.aspect_ratio)-0.0*gs))
-        y_left_dist_min = np.array(y_left_dist_min)
-        y_left_dist_max = np.array(y_left_dist_max)
-        y_column = np.intersect1d(y_left_dist_max,y_left_dist_min)
-        onecolumn = np.intersect1d(y_column,x_column)
-        BC_Left_Edge_dist = []
-        #number of waves
-        n=5.0
-        for items in onecolumn:
-            current_y = self.my_y[items]
-            my_sin = np.sin(current_y*(n/width)*np.pi)*1.0
-            my_sin = (np.absolute(my_sin)) + (0.11)
-            x_max =np.where(self.my_x<=my_sin)[0]
-            for everynode in x_max:
-                if current_y == self.my_y[everynode]:
-                    BC_Left_Edge_dist = np.append(BC_Left_Edge_dist, everynode)
-        #BC_Left_Edge_dist = np.intersect1d(BC_Left_Edge_dist , x_middle_left_dist)
-        BC_Left_Index_dist = np.sort( BC_Left_Edge_dist )
-        BC_Left_fill_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
-        BC_Left_fill_ux_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
-        BC_Left_fill_uy_dist = np.zeros(len(BC_Left_Edge_dist), dtype=np.int32)
-        for item in range(len(BC_Left_Index_dist)):
-            BC_Left_fill_dist[item] = BC_Left_Index_dist[item]
-            BC_Left_fill_ux_dist[item] = 2*BC_Left_Index_dist[item]
-            BC_Left_fill_uy_dist[item] = 2*BC_Left_Index_dist[item]+1
-        self.BC_Left_fill_dist = BC_Left_fill_dist
-        self.BC_Left_fill_ux_dist = BC_Left_fill_ux_dist
-        self.BC_Left_fill_uy_dist = BC_Left_fill_uy_dist
+        self.BC_Left_fill_ux = BC_Left_fill_uy
+
+
+
+
         #Bottom BC with one horizon thickness"""
         ymin_bottom = np.where(self.my_y >= (-hgs))[0]
         ymax_bottom = np.where(self.my_y <= (3.0*gs+hgs))[0]
@@ -467,6 +434,7 @@ class PD(NOX.Epetra.Interface.Required,
         self.BC_Top_fill = BC_Top_fill
         self.BC_Top_fill_ux = BC_Top_fill_ux
         self.BC_Top_fill_uy = BC_Top_fill_uy
+
         #center  bc with two horizon radius
         center = 10.0 * (((nodes_numb /2.0)-1.0)/(nodes_numb-1.0))
         size = np.size(self.my_x)
@@ -553,7 +521,7 @@ class PD(NOX.Epetra.Interface.Required,
                                             .reshape(-1, self.my_x_overlap_stride))
 	    my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
 	    #let's calculate pressure based on penalty method for incompressible flow
-	    current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y) 
+	    current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
             residual = (x - self.my_field)  / self.delta_t
 
@@ -563,7 +531,7 @@ class PD(NOX.Epetra.Interface.Required,
             # Add these terms into the residual
             residual[:-1:2] += term1_x.flatten()[self.unsorted_local_indices]
             residual[1::2]  += term1_y.flatten()[self.unsorted_local_indices]
-		
+
 	    #second term, viscous term ,calculation
 	    term2_x = visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2)+ ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1,-1])/seld.delta_y**2.0))
 	    term2_y = visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1,-1])/seld.delta_y**2.0))
@@ -580,8 +548,8 @@ class PD(NOX.Epetra.Interface.Required,
 	    residual[1::2] -= term3_y.flatten()[self.unsorted_local_indices]
 
 	    #fourth term, time derivative calculation
-	    term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping 
-	    term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping 
+	    term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
+	    term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
 	    residual[:-1:2] += term4_x.flatten()[self.unsorted_local_indices]
 	    residual[1::2] += term4_y.flatten()[self.unsorted_local_indices]
 
@@ -682,19 +650,21 @@ class PD(NOX.Epetra.Interface.Required,
 
     def get_jacobian(self):
         return self.__jac
-
     def get_solution_velocity_x(self):
         return self.my_velocity_x
 
-    #rambod
     def get_solution_velocity_y(self):
         return self.my_velocity_y
+
     def get_x(self):
         return self.my_x
+
     def get_y(self):
         return self.my_y
+
     def get_ps_init(self):
         return self.my_ps
+
     def get_comm(self):
         return self.comm
 
@@ -704,13 +674,13 @@ if __name__ == "__main__":
     def main():
         #Create the PD object
         i=0
-        nodes = 40
+        nodes = 100
         problem = PD(nodes, 10.0)
-        problem.n_in_col = nodes
         pressure_const = problem.pressure_const
         comm = problem.comm
         #Define the initial guess
-        init_ps_guess = problem.get_ps_init()
+        init_ps_guess = np.zeros([2*nodes*nodes,])
+        init_ps_guess[:] = problem.UX
         ps_graph = problem.get_balanced_field_graph()
         ux_local_indices = problem.ux_local_indices
         uy_local_indices = problem.uy_local_indices
@@ -742,25 +712,10 @@ if __name__ == "__main__":
             ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
 
 
-        ################ choose the right kernel function ####### """
-        #for omega = 1/ (r/horizon) """
-        #omega = one
-        #omega = one - (ref_mag_state/horizon)
-        #problem.omega = omega
-        #linear = 1
-        #print omega.shape
-        #plt.plot(omega[:,10])
-        #plt.show()
-        #omega = 1
         omega =one
         problem.omega = omega
         problem.omega = omega
         linear = 0
-        #omega from delgosha """
-        #x = ref_mag_state / horizon
-        #omega = 34.53* (x**6) +-87.89*(x**5) + 66.976 * (x**4) - 3.9475 * (x**3) - 11.756 * (x**2) + 1.1364 * x + 0.9798
-        #problem.omega = omega
-        #linear = 2
 
         vel_overlap_importer = problem.get_field_overlap_importer()
         field_overlap_map = problem.get_field_overlap_map()
@@ -777,7 +732,6 @@ if __name__ == "__main__":
         scalar_variables = ['velocity_x','velocity_y']
         outfile = Ensight('output',vector_variables, scalar_variables,
         problem.comm, viz_path=VIZ_PATH)
-        """implement upwinding"""
         if linear ==0 :
             if problem.width==0:
                 problem.gamma_c = 2.0 / ((horizon**2.0))
@@ -804,23 +758,10 @@ if __name__ == "__main__":
                 problem.gamma_p = 15.77287 /(np.pi *(horizon**2.0))
         gamma_c = problem.gamma_c
         gamma_p = problem.gamma_p
-        ############ Reading simulations results from previous run ##########
-        #if i==0:
-        #    for j in range(problem.size):
-        #        if problem.rank == j:
-        #            pre_sol = np.load('sol_out'+'-'+str(j)+'.npy')
-        #            pre_sat = np.load('sat_out'+'-'+str(j)+'.npy')
-        #    init_ps_guess[ux_local_indices]=pre_sol[ux_local_indices]
-        #    init_ps_guess[uy_local_indices]= pre_sol[uy_local_indices]
-        #    problem.velocity_y_n = pre_sat
-        #
+
         end_range=5000000
         for i in range(end_range):
             print(i)
-            """ USE Finite Difference Coloring to compute jacobian.  Distinction is made
-                    between fdc and solver, as fdc handles export to overlap automatically """
-            #if i>5:
-            #problem.time_stepping =0.5*0.000125
             problem.jac_comp = True
             fdc_velocity_x = NOX.Epetra.FiniteDifferenceColoring(
                    nl_params, problem, init_ps_guess,
@@ -869,13 +810,9 @@ if __name__ == "__main__":
 
             if i%100==0:
                 if problem.rank==0:
-                    #plt.quiver(x_out,y_out,v_x,v_y)
                     plt.scatter(x_out,y_out,c=v_out)
-                    #plt.colorbar()
                     file_name= "pressure"+"_"+str(i)
                     plt.savefig(file_name+".png")
-
-                    #plt.show()
 
             ################ Write Date to Ensight Outfile #################
             time = i * problem.time_stepping
@@ -892,19 +829,4 @@ if __name__ == "__main__":
 
             ################################################################
         outfile.finalize()
-
-        #for i in range(problem.size):
-        #    if problem.rank == i:
-        #        np.save('sol_out'+'-'+str(i),solution)
-        #        np.save('sat_out'+'-'+str(i),problem.velocity_y_n)
-        ##plotting the results
-        #x = problem.get_x()
-        #s_out = comm.GatherAll(sol_velocity_y).flatten()
-        #p_out = comm.GatherAll(sol_velocity_x).flatten()
-        #x_out = comm.GatherAll(x).flatten()
-        #if problem.rank==0:
-        #    np.save('s_out'+'-'+str(i),s_out)
-        #    np.save('p_out'+'-'+str(i),p_out)
-        #    np.save('x_out'+'-'+str(i),x_out)
     main()
-
