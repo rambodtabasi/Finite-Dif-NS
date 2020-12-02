@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+#from __future__ import print_function
 import math
 import sys
 
@@ -269,6 +269,7 @@ class PD(NOX.Epetra.Interface.Required,
            Create data structures needed for doing computations
         """
         # Create some local (to function) convenience variables
+        global_indices = self.balanced_map.MyGlobalElements()
         balanced_map = self.get_balanced_map()
         field_balanced_map = self.get_balanced_field_map()
 
@@ -342,6 +343,16 @@ class PD(NOX.Epetra.Interface.Required,
         # Data for sorting/reshaping overlap field vectors
         self.global_overlap_indices = (self.get_overlap_map()
                                            .MyGlobalElements())
+
+
+        #rambod
+        self.ux_overlap_indices = np.where(self.global_overlap_indices%2==0)
+        self.uy_overlap_indices = np.where(self.global_overlap_indices%2==1)
+        self.ux_local_indices = np.where(global_indices%2==0)
+        self.uy_local_indices = np.where(global_indices%2==1)
+
+
+
         self.sorted_local_indices = np.argsort(self.global_overlap_indices)
         self.unsorted_local_indices = np.arange(
                self.global_overlap_indices.shape[0])[self.sorted_local_indices]
@@ -564,8 +575,8 @@ class PD(NOX.Epetra.Interface.Required,
                                  Epetra.Add)
 
             ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
-            self.F_fill_overlap[ux_local_overlap_indices]=self.my_ux_resi_overlap
-            self.F_fill_overlap[uy_local_overlap_indices]=self.my_uy_resi_overlap
+            self.F_fill_overlap[self.ux_overlap_indices]= residual[:-1:2]
+            self.F_fill_overlap[self.uy_overlap_indices]= residual[1::2]
             #Export F fill from [ghost+owned] to [owned]
             # Epetra.Add adds off processor contributions to local nodes
             self.F_fill.Export(self.F_fill_overlap, vel_overlap_importer, Epetra.Add)
@@ -679,47 +690,37 @@ if __name__ == "__main__":
         pressure_const = problem.pressure_const
         comm = problem.comm
         #Define the initial guess
-        init_ps_guess = np.zeros([2*nodes*nodes,])
-        init_ps_guess[:] = problem.UX
+        init_vel_guess = np.zeros([2*nodes*nodes,])
+        init_vel_guess[:] = problem.UX
         ps_graph = problem.get_balanced_field_graph()
         ux_local_indices = problem.ux_local_indices
         uy_local_indices = problem.uy_local_indices
         time_stepping = problem.time_stepping
-        uy_local_overlap_indices = problem.uy_local_overlap_indices
-        ux_local_overlap_indices = problem.ux_local_overlap_indices
-        #problem.velocity_y_n = problem.vel_overlap[uy_local_overlap_indices]
-        ref_pos_state_x = problem.my_ref_pos_state_x
-        ref_pos_state_y = problem.my_ref_pos_state_y
-        ref_mag_state = problem.my_ref_mag_state
+        uy_overlap_indices = problem.uy_overlap_indices
+        ux_overlap_indices = problem.ux_overlap_indices
+        #problem.velocity_y_n = problem.vel_overlap[uy_overlap_indices]
         neighborhood_graph = problem.get_balanced_neighborhood_graph()
         num_owned = neighborhood_graph.NumMyRows()
-        neighbors = problem.my_neighbors
-        node_number = neighbors.shape[0]
-        neighb_number = neighbors.shape[1]
-        size_upscaler = (node_number , neighb_number)
-        problem.up_scaler = np.ones(size_upscaler)
+        #neighbors = problem.my_neighbors
+        #node_number = neighbors.shape[0]
+        #neighb_number = neighbors.shape[1]
+        #size_upscaler = (node_number , neighb_number)
+        #problem.up_scaler = np.ones(size_upscaler)
         horizon = problem.horizon
-        volumes = problem.my_volumes
-        size = ref_mag_state.shape
-        one = np.ones(size)
+        #volumes = problem.my_volumes
+        #size = ref_mag_state.shape
+        #one = np.ones(size)
 
 
 
-        ref_mag_state = problem.my_ref_mag_state
-        if problem.width ==0:
-            ref_mag_state_invert = (ref_mag_state ** ( 1.0)) ** -1.0
-        else:
-            ref_mag_state_invert = (ref_mag_state ** ( 2.0)) ** -1.0
 
 
-        omega =one
-        problem.omega = omega
-        problem.omega = omega
-        linear = 0
+        #omega =one
+        #problem.omega = omega
+        #linear = 0
 
         vel_overlap_importer = problem.get_field_overlap_importer()
         field_overlap_map = problem.get_field_overlap_map()
-        my_vel_overlap = problem.my_vel_overlap
         #Initialize and change some NOX settings
         nl_params = NOX.Epetra.defaultNonlinearParameters(problem.comm,2)
         nl_params["Line Search"]["Method"] = "Polynomial"
@@ -732,65 +733,38 @@ if __name__ == "__main__":
         scalar_variables = ['velocity_x','velocity_y']
         outfile = Ensight('output',vector_variables, scalar_variables,
         problem.comm, viz_path=VIZ_PATH)
-        if linear ==0 :
-            if problem.width==0:
-                problem.gamma_c = 2.0 / ((horizon**2.0))
-                problem.gamma_p = 1.0 / ((horizon**2.0))
-
-            else:
-                problem.gamma_c = 6.0 /(np.pi *(horizon**4.0))
-                problem.gamma_p = 2.0 /(np.pi *(horizon**2.0))
-        if linear == 1:
-            if problem.width==0:
-                problem.gamma_c = 9.0 / ((horizon**2.0))
-                problem.gamma_p = 3.0 / ((horizon**2.0))
-
-            else:
-                problem.gamma_c = 18.0 /(np.pi *(horizon**2.0))
-                problem.gamma_p = 6.0 /(np.pi *(horizon**2.0))
-        if linear == 2:
-            if problem.width==0:
-                problem.gamma_c = 15.772870 / ((horizon**2.0))
-                problem.gamma_p = 7.886435 / ((horizon**2.0))
-
-            else:
-                problem.gamma_c = 31.54574 /(np.pi *(horizon**2.0))
-                problem.gamma_p = 15.77287 /(np.pi *(horizon**2.0))
-        gamma_c = problem.gamma_c
-        gamma_p = problem.gamma_p
 
         end_range=5000000
         for i in range(end_range):
             print(i)
             problem.jac_comp = True
-            fdc_velocity_x = NOX.Epetra.FiniteDifferenceColoring(
-                   nl_params, problem, init_ps_guess,
+            fdc_velocity = NOX.Epetra.FiniteDifferenceColoring(
+                   nl_params, problem, init_vel_guess,
                     ps_graph, False, False)
-            fdc_velocity_x.computeJacobian(init_ps_guess)
-            jacobian = fdc_velocity_x.getUnderlyingMatrix()
+            fdc_velocity.computeJacobian(init_vel_guess)
+            jacobian = fdc_velocity.getUnderlyingMatrix()
             jacobian.FillComplete()
             problem.jac_comp = False
             #Create NOX solver object, solve for velocity_x and velocity_y
             if i<1:
-                solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
+                solver = NOX.Epetra.defaultSolver(init_vel_guess, problem,
                         problem, jacobian,nlParams = nl_params, maxIters=1,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 8.0e-7, relTol = None)
             else:
-                solver = NOX.Epetra.defaultSolver(init_ps_guess, problem,
+                solver = NOX.Epetra.defaultSolver(init_vel_guess, problem,
                     problem, jacobian,nlParams = nl_params, maxIters=100,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 1.0e-6, relTol = None)
             solveStatus = solver.solve()
             finalGroup = solver.getSolutionGroup()
             solution = finalGroup.getX()
             #resetting the initial conditions
-            init_ps_guess[ux_local_indices]=solution[ux_local_indices]
+            init_vel_guess[ux_local_indices]=solution[ux_local_indices]
             #start from the initial guess of zero
-            init_ps_guess[uy_local_indices]= solution[uy_local_indices]
+            init_vel_guess[uy_local_indices]= solution[uy_local_indices]
             #velocity_y_n = solution[uy_local_indices]
-            my_vel_overlap.Import( solution, vel_overlap_importer, Epetra.Insert )
-            problem.velocity_y_n = my_vel_overlap[uy_local_overlap_indices]
-            velocity_x_n = my_vel_overlap[ux_local_overlap_indices]
-            problem.velocity_x_n = velocity_x_n
+            problem.my_field_overlap.Import( solution, vel_overlap_importer, Epetra.Insert )
+            problem.velocity_y_n = my_field_overlap[:-1:2]
+            problem.velocity_x_n = my_field_overlap[1::2]
             #plotting the results
             sol_velocity_x = solution[ux_local_indices]
             sol_velocity_y = solution[uy_local_indices]
