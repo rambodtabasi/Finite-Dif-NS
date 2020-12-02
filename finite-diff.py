@@ -292,13 +292,13 @@ class PD(NOX.Epetra.Interface.Required,
 
         # Create a temporary unbalanced map
         unbalanced_map = Epetra.Map(self.__global_number_of_nodes,
-                                    self.__global_number_of_nodes, 0,
+                                    my_x_temp.shape[0], 0,
                                     self.comm)
 
         # Needed to build the combined unbalanced map to export values
         # from head node to all nodes
         field_unbalanced_map = Epetra.Map(self.number_of_field_variables,
-                                          self.number_of_field_variables,
+                                          my_field_temp.shape[0],
                                           0, self.comm)
 
         # Create the unbalanced Epetra vectors that will only be used to import
@@ -453,7 +453,7 @@ class PD(NOX.Epetra.Interface.Required,
         hw = self.width/2 + self.width/20
         r = w/20
         rad = np.ones(size)
-        rad = np.sqrt((self.my_x-hl)**2+(self.my_y-hw)**2)
+        rad = np.sqrt((self.my_x[:]-hl)**2+(self.my_y[:]-hw)**2)
         central_nodes = np.where(rad<=r)
         #central_nodes = np.array(central_nodes)
         #c_2 = central_nodes
@@ -690,9 +690,8 @@ if __name__ == "__main__":
         pressure_const = problem.pressure_const
         comm = problem.comm
         #Define the initial guess
-        init_vel_guess = np.zeros([2*nodes*nodes,])
-        init_vel_guess[:] = problem.UX
-        ps_graph = problem.get_balanced_field_graph()
+        field_graph = problem.get_balanced_field_graph()
+        init_vel_guess = Epetra.Vector(problem.get_balanced_field_map())
         ux_local_indices = problem.ux_local_indices
         uy_local_indices = problem.uy_local_indices
         time_stepping = problem.time_stepping
@@ -740,7 +739,7 @@ if __name__ == "__main__":
             problem.jac_comp = True
             fdc_velocity = NOX.Epetra.FiniteDifferenceColoring(
                    nl_params, problem, init_vel_guess,
-                    ps_graph, False, False)
+                   field_graph, False, False)
             fdc_velocity.computeJacobian(init_vel_guess)
             jacobian = fdc_velocity.getUnderlyingMatrix()
             jacobian.FillComplete()

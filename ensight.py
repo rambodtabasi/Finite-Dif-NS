@@ -97,31 +97,31 @@ class Ensight:
             directory = './ensight_files/'
             self.__case_file = open(directory+self.__fname+'.'+str(rank)+'.case','w')
 
-            print >> self.__case_file, 'FORMAT'
-            print >> self.__case_file, 'type: ensight gold'
-            print >> self.__case_file, 'GEOMETRY'
-            print >> self.__case_file, 'model: 1 1 ' + self.__fname+'.'+str(rank)+'.geo'
-            print >> self.__case_file, 'VARIABLE'
+            print('FORMAT', file=self.__case_file)
+            print('type: ensight gold', file=self.__case_file)
+            print('GEOMETRY', file=self.__case_file)
+            print('model: 1 1 ' + self.__fname+'.'+str(rank)+'.geo', file=self.__case_file)
+            print('VARIABLE', file=self.__case_file)
 
             if self.__vv_names != None:
                 for item in self.__vv_names:
-                    print >> self.__case_file, ('vector per node: 1 1 ' + 
-                            item + ' ' + item +'.'+str(rank)+'.vec')
+                    print(('vector per node: 1 1 ' + 
+                            item + ' ' + item +'.'+str(rank)+'.vec'), file=self.__case_file)
 
             if self.__sv_names != None:
                 for item in self.__sv_names:
-                    print >> self.__case_file, ('scalar per node: 1 1 ' + 
-                            item + ' ' + item +'.'+str(rank)+'.scl')
+                    print(('scalar per node: 1 1 ' + 
+                            item + ' ' + item +'.'+str(rank)+'.scl'), file=self.__case_file)
 
-            print >> self.__case_file, 'TIME'
-            print >> self.__case_file, 'time set: 1'
-            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
-            print >> self.__case_file, 'time values: '
+            print('TIME', file=self.__case_file)
+            print('time set: 1', file=self.__case_file)
+            print('number of steps: ' + str(len(self.times)), file=self.__case_file)
+            print('time values: ', file=self.__case_file)
             for item in self.times:
-                print >> self.__case_file, item
-            print >> self.__case_file, 'FILE'
-            print >> self.__case_file, 'file set: 1'
-            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+                print(item, file=self.__case_file)
+            print('FILE', file=self.__case_file)
+            print('file set: 1', file=self.__case_file)
+            print('number of steps: ' + str(len(self.times)), file=self.__case_file)
 
             self.__case_file.close()
 
@@ -130,31 +130,31 @@ class Ensight:
             directory = './ensight_files/'
             self.__case_file = open(directory+self.__fname+'.case','w')
 
-            print >> self.__case_file, 'FORMAT'
-            print >> self.__case_file, 'type: ensight gold'
-            print >> self.__case_file, 'GEOMETRY'
-            print >> self.__case_file, 'model: 1 1 ' + self.__fname + '.geo'
-            print >> self.__case_file, 'VARIABLE'
+            print('FORMAT', file=self.__case_file)
+            print('type: ensight gold', file=self.__case_file)
+            print('GEOMETRY', file=self.__case_file)
+            print('model: 1 1 ' + self.__fname + '.geo', file=self.__case_file)
+            print('VARIABLE', file=self.__case_file)
 
             if self.__vv_names != None:
                 for item in self.__vv_names:
-                    print >> self.__case_file, ('vector per node: 1 1 ' + 
-                            item + ' ' + item +'.vec')
+                    print(('vector per node: 1 1 ' + 
+                            item + ' ' + item +'.vec'), file=self.__case_file)
 
             if self.__sv_names != None:
                 for item in self.__sv_names:
-                    print >> self.__case_file, ('scalar per node: 1 1 ' + 
-                            item + ' ' + item +'.scl')
+                    print(('scalar per node: 1 1 ' + 
+                            item + ' ' + item +'.scl'), file=self.__case_file)
 
-            print >> self.__case_file, 'TIME'
-            print >> self.__case_file, 'time set: 1'
-            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
-            print >> self.__case_file, 'time values: '
+            print('TIME', file=self.__case_file)
+            print('time set: 1', file=self.__case_file)
+            print('number of steps: ' + str(len(self.times)), file=self.__case_file)
+            print('time values: ', file=self.__case_file)
             for item in self.times:
-                print >> self.__case_file, item
-            print >> self.__case_file, 'FILE'
-            print >> self.__case_file, 'file set: 1'
-            print >> self.__case_file, 'number of steps: ' + str(len(self.times))
+                print(item, file=self.__case_file)
+            print('FILE', file=self.__case_file)
+            print('file set: 1', file=self.__case_file)
+            print('number of steps: ' + str(len(self.times)), file=self.__case_file)
 
             self.__case_file.close()
 
@@ -164,26 +164,26 @@ class Ensight:
     def write_geometry_file_time_step(self, x, y):
         """ Initialize Ensight geometry file"""
 
-        print >> self.__geo_file, 'BEGIN TIME STEP'
-        print >> self.__geo_file, 'Ensight Gold geometry file\n'
-        print >> self.__geo_file, 'node id off'
-        print >> self.__geo_file, 'element id off'
-        print >> self.__geo_file, 'part'
-        print >> self.__geo_file, '1'
-        print >> self.__geo_file, 'grid'
-        print >> self.__geo_file, 'coordinates'
-        print >> self.__geo_file, len(x)
+        print('BEGIN TIME STEP', file=self.__geo_file)
+        print('Ensight Gold geometry file\n', file=self.__geo_file)
+        print('node id off', file=self.__geo_file)
+        print('element id off', file=self.__geo_file)
+        print('part', file=self.__geo_file)
+        print('1', file=self.__geo_file)
+        print('grid', file=self.__geo_file)
+        print('coordinates', file=self.__geo_file)
+        print(len(x), file=self.__geo_file)
         for item in x:
-            print >> self.__geo_file, item 
+            print(item, file=self.__geo_file) 
         for item in y:
-            print >> self.__geo_file, item 
+            print(item, file=self.__geo_file) 
         for item in range(len(x)):
-            print >> self.__geo_file, 0.0
-        print >> self.__geo_file, 'point'
-        print >> self.__geo_file, len(x)
+            print(0.0, file=self.__geo_file)
+        print('point', file=self.__geo_file)
+        print(len(x), file=self.__geo_file)
         for item in range(len(x)):
-            print >> self.__geo_file, item + 1 
-        print >> self.__geo_file, 'END TIME STEP'
+            print(item + 1, file=self.__geo_file) 
+        print('END TIME STEP', file=self.__geo_file)
 
         return
 
@@ -195,16 +195,16 @@ class Ensight:
                 write_index = index
                 break
 
-        print >> self.__vector_var_files[write_index], 'BEGIN TIME STEP'
-        print >> self.__vector_var_files[write_index], 'time = ', time
-        print >> self.__vector_var_files[write_index], 'part'
-        print >> self.__vector_var_files[write_index], '1'
-        print >> self.__vector_var_files[write_index], 'coordinates'
+        print('BEGIN TIME STEP', file=self.__vector_var_files[write_index])
+        print('time = ', time, file=self.__vector_var_files[write_index])
+        print('part', file=self.__vector_var_files[write_index])
+        print('1', file=self.__vector_var_files[write_index])
+        print('coordinates', file=self.__vector_var_files[write_index])
         for xyz in variable:
             for item in xyz:
-                print >> self.__vector_var_files[write_index], item
+                print(item, file=self.__vector_var_files[write_index])
 
-        print >> self.__vector_var_files[write_index], 'END TIME STEP'
+        print('END TIME STEP', file=self.__vector_var_files[write_index])
 
         return
     
@@ -217,15 +217,15 @@ class Ensight:
                 write_index = index
                 break
 
-        print >> self.__scalar_var_files[write_index], 'BEGIN TIME STEP'
-        print >> self.__scalar_var_files[write_index], 'time = ', time
-        print >> self.__scalar_var_files[write_index], 'part'
-        print >> self.__scalar_var_files[write_index], '1'
-        print >> self.__scalar_var_files[write_index], 'coordinates'
+        print('BEGIN TIME STEP', file=self.__scalar_var_files[write_index])
+        print('time = ', time, file=self.__scalar_var_files[write_index])
+        print('part', file=self.__scalar_var_files[write_index])
+        print('1', file=self.__scalar_var_files[write_index])
+        print('coordinates', file=self.__scalar_var_files[write_index])
         for item in variable:
-            print >> self.__scalar_var_files[write_index], item
+            print(item, file=self.__scalar_var_files[write_index])
 
-        print >> self.__scalar_var_files[write_index], 'END TIME STEP'
+        print('END TIME STEP', file=self.__scalar_var_files[write_index])
 
         return
 
@@ -263,19 +263,19 @@ class Ensight:
             if rank == 0:
                 with open(directory+self.__fname+'.sos','w') as ff:
 
-                    print >> ff, "FORMAT"
-                    print >> ff, "type: master_server gold"
-                    print >> ff, "SERVERS"
-                    print >> ff, "number of servers: " + str(size) 
+                    print("FORMAT", file=ff)
+                    print("type: master_server gold", file=ff)
+                    print("SERVERS", file=ff)
+                    print("number of servers: " + str(size), file=ff) 
 
                     for server_number in range(size):
 
-                        print >> ff, "#Server " + str(server_number)
-                        print >> ff, "machine id: " + socket.gethostname()
+                        print("#Server " + str(server_number), file=ff)
+                        print("machine id: " + socket.gethostname(), file=ff)
 
                         if viz_path != None:
-                            print >> ff, "execuatable: " + viz_path
+                            print("execuatable: " + viz_path, file=ff)
                         else:
-                            print >> ff, "execuatable: paraview"
-                        print >> ff, ("casefile: " + self.__fname + '.' 
-                                + str(server_number) + '.case')
+                            print("execuatable: paraview", file=ff)
+                        print(("casefile: " + self.__fname + '.' 
+                                + str(server_number) + '.case'), file=ff)
