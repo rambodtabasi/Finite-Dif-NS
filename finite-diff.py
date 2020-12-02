@@ -527,12 +527,12 @@ class PD(NOX.Epetra.Interface.Required,
             # Theses are the sorted and reshaped overlap vectors
             my_ux = (self.my_field_overlap[:-1:2][self.sorted_local_indices]
                                             .reshape(-1, self.my_x_overlap_stride))
-	    my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
+            my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
             my_uy = (self.my_field_overlap[1::2][self.sorted_local_indices]
                                             .reshape(-1, self.my_x_overlap_stride))
-	    my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
-	    #let's calculate pressure based on penalty method for incompressible flow
-	    current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
+            my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
+            #let's calculate pressure based on penalty method for incompressible flow
+            current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
             residual = (x - self.my_field)  / self.delta_t
 
@@ -543,26 +543,26 @@ class PD(NOX.Epetra.Interface.Required,
             residual[:-1:2] += term1_x.flatten()[self.unsorted_local_indices]
             residual[1::2]  += term1_y.flatten()[self.unsorted_local_indices]
 
-	    #second term, viscous term ,calculation
-	    term2_x = visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2)+ ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1,-1])/seld.delta_y**2.0))
-	    term2_y = visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1,-1])/seld.delta_y**2.0))
-	    residual[:-1:2] -= term2_x.flatten()[self.unsorted_local_indices]
-	    residual[1::2] -= term2_y.flatten()[self.unsorted_local_indices]
+            #second term, viscous term ,calculation
+            term2_x = visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2)+ ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1,-1])/seld.delta_y**2.0))
+            term2_y = visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1,-1])/seld.delta_y**2.0))
+            residual[:-1:2] -= term2_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] -= term2_y.flatten()[self.unsorted_local_indices]
 
 
 
-	    #third term, Pressure term, calculation
-	    term3_x = (-1.0/rho) * ( current_pressure[1:-1,:-2]-current_pressure[1:-1,2:])/2.0/self.delta_x
-	    term3_y = (-1.0/rho) * ( current_pressure[:-2,1:-1]-current_pressure[2:,1:-1])/2.0/self.delta_y
+            #third term, Pressure term, calculation
+            term3_x = (-1.0/rho) * ( current_pressure[1:-1,:-2]-current_pressure[1:-1,2:])/2.0/self.delta_x
+            term3_y = (-1.0/rho) * ( current_pressure[:-2,1:-1]-current_pressure[2:,1:-1])/2.0/self.delta_y
             # Do the rest of the terms
-	    residual[:-1:2] -= term3_x.flatten()[self.unsorted_local_indices]
-	    residual[1::2] -= term3_y.flatten()[self.unsorted_local_indices]
+            residual[:-1:2] -= term3_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] -= term3_y.flatten()[self.unsorted_local_indices]
 
-	    #fourth term, time derivative calculation
-	    term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
-	    term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
-	    residual[:-1:2] += term4_x.flatten()[self.unsorted_local_indices]
-	    residual[1::2] += term4_y.flatten()[self.unsorted_local_indices]
+            #fourth term, time derivative calculation
+            term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
+            term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
+            residual[:-1:2] += term4_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] += term4_y.flatten()[self.unsorted_local_indices]
 
 
             # Put residual into my_field
