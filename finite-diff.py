@@ -742,7 +742,7 @@ if __name__ == "__main__":
                    nl_params, problem, init_vel_guess,
                     ps_graph, False, False)
             fdc_velocity.computeJacobian(init_vel_guess)
-            jacobian = fdc_velocity.getUnderlyingMatrix()
+            jacobian = fdc_velocity_x.getUnderlyingMatrix()
             jacobian.FillComplete()
             problem.jac_comp = False
             #Create NOX solver object, solve for velocity_x and velocity_y
