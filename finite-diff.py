@@ -292,13 +292,13 @@ class PD(NOX.Epetra.Interface.Required,
 
         # Create a temporary unbalanced map
         unbalanced_map = Epetra.Map(self.__global_number_of_nodes,
-                                    self.__global_number_of_nodes, 0,
+                                    my_x_temp.shape[0], 0,
                                     self.comm)
 
         # Needed to build the combined unbalanced map to export values
         # from head node to all nodes
         field_unbalanced_map = Epetra.Map(self.number_of_field_variables,
-                                          self.number_of_field_variables,
+                                          my_field_temp.shape[0],
                                           0, self.comm)
 
         # Create the unbalanced Epetra vectors that will only be used to import
@@ -453,7 +453,7 @@ class PD(NOX.Epetra.Interface.Required,
         hw = self.width/2 + self.width/20
         r = w/20
         rad = np.ones(size)
-        rad = np.sqrt((self.my_x-hl)**2+(self.my_y-hw)**2)
+        rad = np.sqrt((self.my_x[:]-hl)**2+(self.my_y[:]-hw)**2)
         central_nodes = np.where(rad<=r)
         #central_nodes = np.array(central_nodes)
         #c_2 = central_nodes
@@ -527,12 +527,12 @@ class PD(NOX.Epetra.Interface.Required,
             # Theses are the sorted and reshaped overlap vectors
             my_ux = (self.my_field_overlap[:-1:2][self.sorted_local_indices]
                                             .reshape(-1, self.my_x_overlap_stride))
-	    my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
+            my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
             my_uy = (self.my_field_overlap[1::2][self.sorted_local_indices]
                                             .reshape(-1, self.my_x_overlap_stride))
-	    my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
-	    #let's calculate pressure based on penalty method for incompressible flow
-	    current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
+            my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
+            #let's calculate pressure based on penalty method for incompressible flow
+            current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
             residual = (x - self.my_field)  / self.delta_t
 
@@ -543,26 +543,26 @@ class PD(NOX.Epetra.Interface.Required,
             residual[:-1:2] += term1_x.flatten()[self.unsorted_local_indices]
             residual[1::2]  += term1_y.flatten()[self.unsorted_local_indices]
 
-	    #second term, viscous term ,calculation
-	    term2_x = visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2)+ ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1,-1])/seld.delta_y**2.0))
-	    term2_y = visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1,-1])/seld.delta_y**2.0))
-	    residual[:-1:2] -= term2_x.flatten()[self.unsorted_local_indices]
-	    residual[1::2] -= term2_y.flatten()[self.unsorted_local_indices]
+            #second term, viscous term ,calculation
+            term2_x = visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2)+ ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1,-1])/seld.delta_y**2.0))
+            term2_y = visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1,-1])/seld.delta_y**2.0))
+            residual[:-1:2] -= term2_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] -= term2_y.flatten()[self.unsorted_local_indices]
 
 
 
-	    #third term, Pressure term, calculation
-	    term3_x = (-1.0/rho) * ( current_pressure[1:-1,:-2]-current_pressure[1:-1,2:])/2.0/self.delta_x
-	    term3_y = (-1.0/rho) * ( current_pressure[:-2,1:-1]-current_pressure[2:,1:-1])/2.0/self.delta_y
+            #third term, Pressure term, calculation
+            term3_x = (-1.0/rho) * ( current_pressure[1:-1,:-2]-current_pressure[1:-1,2:])/2.0/self.delta_x
+            term3_y = (-1.0/rho) * ( current_pressure[:-2,1:-1]-current_pressure[2:,1:-1])/2.0/self.delta_y
             # Do the rest of the terms
-	    residual[:-1:2] -= term3_x.flatten()[self.unsorted_local_indices]
-	    residual[1::2] -= term3_y.flatten()[self.unsorted_local_indices]
+            residual[:-1:2] -= term3_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] -= term3_y.flatten()[self.unsorted_local_indices]
 
-	    #fourth term, time derivative calculation
-	    term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
-	    term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
-	    residual[:-1:2] += term4_x.flatten()[self.unsorted_local_indices]
-	    residual[1::2] += term4_y.flatten()[self.unsorted_local_indices]
+            #fourth term, time derivative calculation
+            term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
+            term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
+            residual[:-1:2] += term4_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] += term4_y.flatten()[self.unsorted_local_indices]
 
 
             # Put residual into my_field
@@ -690,9 +690,8 @@ if __name__ == "__main__":
         pressure_const = problem.pressure_const
         comm = problem.comm
         #Define the initial guess
-        init_vel_guess = np.zeros([2*nodes*nodes,])
-        init_vel_guess[:] = problem.UX
-        ps_graph = problem.get_balanced_field_graph()
+        field_graph = problem.get_balanced_field_graph()
+        init_vel_guess = Epetra.Vector(problem.get_balanced_field_map())
         ux_local_indices = problem.ux_local_indices
         uy_local_indices = problem.uy_local_indices
         time_stepping = problem.time_stepping
@@ -740,7 +739,7 @@ if __name__ == "__main__":
             problem.jac_comp = True
             fdc_velocity = NOX.Epetra.FiniteDifferenceColoring(
                    nl_params, problem, init_vel_guess,
-                    ps_graph, False, False)
+                   field_graph, False, False)
             fdc_velocity.computeJacobian(init_vel_guess)
             jacobian = fdc_velocity_x.getUnderlyingMatrix()
             jacobian.FillComplete()
