@@ -1,4 +1,4 @@
-
+from __future__ import print_function
 import os
 import socket
 
@@ -67,18 +67,18 @@ class Ensight:
 
             #Open geometry file
             self.__geo_file = open(directory+filename+'.geo','w')
-            
+
             self.__vv_names = vector_var_names
             self.__sv_names = scalar_var_names
             self.__fname = filename
             self.times = []
 
             if self.__vv_names != None:
-                self.__vector_var_files = [ open(directory+afilename+'.vec','w') 
+                self.__vector_var_files = [ open(directory+afilename+'.vec','w')
                         for afilename in self.__vv_names ]
-            
+
             if self.__sv_names != None:
-                self.__scalar_var_files = [ open(directory+afilename+'.scl','w') 
+                self.__scalar_var_files = [ open(directory+afilename+'.scl','w')
                         for afilename in self.__sv_names ]
 
 
@@ -87,7 +87,7 @@ class Ensight:
 
     def write_case_file(self,comm=None):
         """Initialize Ensight case file"""
-        
+
         if comm != None and comm.NumProc() != 1:
 
             rank = comm.MyPID()
@@ -96,7 +96,7 @@ class Ensight:
 
             directory = './ensight_files/'
             self.__case_file = open(directory+self.__fname+'.'+str(rank)+'.case','w')
-
+            print("hi")
             print('FORMAT', file=self.__case_file)
             print('type: ensight gold', file=self.__case_file)
             print('GEOMETRY', file=self.__case_file)
@@ -105,12 +105,12 @@ class Ensight:
 
             if self.__vv_names != None:
                 for item in self.__vv_names:
-                    print(('vector per node: 1 1 ' + 
+                    print(('vector per node: 1 1 ' +
                             item + ' ' + item +'.'+str(rank)+'.vec'), file=self.__case_file)
 
             if self.__sv_names != None:
                 for item in self.__sv_names:
-                    print(('scalar per node: 1 1 ' + 
+                    print(('scalar per node: 1 1 ' +
                             item + ' ' + item +'.'+str(rank)+'.scl'), file=self.__case_file)
 
             print('TIME', file=self.__case_file)
@@ -126,7 +126,7 @@ class Ensight:
             self.__case_file.close()
 
         else:
-            
+
             directory = './ensight_files/'
             self.__case_file = open(directory+self.__fname+'.case','w')
 
@@ -138,12 +138,12 @@ class Ensight:
 
             if self.__vv_names != None:
                 for item in self.__vv_names:
-                    print(('vector per node: 1 1 ' + 
+                    print(('vector per node: 1 1 ' +
                             item + ' ' + item +'.vec'), file=self.__case_file)
 
             if self.__sv_names != None:
                 for item in self.__sv_names:
-                    print(('scalar per node: 1 1 ' + 
+                    print(('scalar per node: 1 1 ' +
                             item + ' ' + item +'.scl'), file=self.__case_file)
 
             print('TIME', file=self.__case_file)
@@ -174,15 +174,15 @@ class Ensight:
         print('coordinates', file=self.__geo_file)
         print(len(x), file=self.__geo_file)
         for item in x:
-            print(item, file=self.__geo_file) 
+            print(item, file=self.__geo_file)
         for item in y:
-            print(item, file=self.__geo_file) 
+            print(item, file=self.__geo_file)
         for item in range(len(x)):
             print(0.0, file=self.__geo_file)
         print('point', file=self.__geo_file)
         print(len(x), file=self.__geo_file)
         for item in range(len(x)):
-            print(item + 1, file=self.__geo_file) 
+            print(item + 1, file=self.__geo_file)
         print('END TIME STEP', file=self.__geo_file)
 
         return
@@ -207,7 +207,7 @@ class Ensight:
         print('END TIME STEP', file=self.__vector_var_files[write_index])
 
         return
-    
+
 
     def write_scalar_variable_time_step(self, variable_name, variable, time):
 
@@ -234,17 +234,17 @@ class Ensight:
 
         self.times.append(time)
 
-        return 
+        return
 
 
     def finalize(self):
-        
+
         self.__geo_file.close()
-        
+
         if self.__vv_names != None:
             for item in self.__vector_var_files:
                 item.close()
-        
+
         if self.__sv_names != None:
             for item in self.__scalar_var_files:
                 item.close()
@@ -254,7 +254,7 @@ class Ensight:
     def __write_sos_file(self,comm=None,viz_path=None):
 
         if comm != None:
-            
+
             rank = comm.MyPID()
             size = comm.NumProc()
 
@@ -266,7 +266,7 @@ class Ensight:
                     print("FORMAT", file=ff)
                     print("type: master_server gold", file=ff)
                     print("SERVERS", file=ff)
-                    print("number of servers: " + str(size), file=ff) 
+                    print("number of servers: " + str(size), file=ff)
 
                     for server_number in range(size):
 
@@ -277,5 +277,5 @@ class Ensight:
                             print("execuatable: " + viz_path, file=ff)
                         else:
                             print("execuatable: paraview", file=ff)
-                        print(("casefile: " + self.__fname + '.' 
+                        print(("casefile: " + self.__fname + '.'
                                 + str(server_number) + '.case'), file=ff)

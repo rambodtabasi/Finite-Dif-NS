@@ -53,9 +53,14 @@ class PD(NOX.Epetra.Interface.Required,
         #self.iteration = 0
         self.num_nodes = num_nodes
         self.time_stepping =1e-2
+        self.delta_t =self.time_stepping
         self.pressure_const = 1e-2
         self.UX = 0.157
+        self.visc = 1.79e-6
+        self.rho = 1000
         self.grid_spacing = float(length) / (num_nodes - 1)
+        self.delta_x = self.grid_spacing
+        self.delta_y = self.grid_spacing
         self.bc_values = bc_values
         self.symm_bcs = symm_bcs
 
@@ -195,16 +200,30 @@ class PD(NOX.Epetra.Interface.Required,
         self.number_of_field_variables = 2 * self.__global_number_of_nodes
         global_indices = self.balanced_map.MyGlobalElements()
 
+	Global_Indices = self.balanced_map.MyGlobalElements()
+
+        XY_Global_Indices = np.zeros(2*len(Global_Indices),dtype = np.int32)
+
+        for index in range(len(Global_Indices)):
+            XY_Global_Indices[2*index] = 2*Global_Indices[index]
+            XY_Global_Indices[2*index+1]= 2*Global_Indices[index]+1
+
+        XY_list = XY_Global_Indices.tolist()
+
+
         field_global_indices = np.empty(2 * global_indices.shape[0],
                                         dtype=np.int32)
 
         field_global_indices[0:-1:2] = 2 * global_indices
         field_global_indices[1::2] = 2 * global_indices + 1
 
+        Number_of_Global_Variables = 2 * self.__global_number_of_nodes
+
+
         # create Epetra Map based on node degrees of Freedom
-        self.field_balanced_map = Epetra.Map(self.number_of_field_variables,
-                                             field_global_indices.tolist(),
-                                             0, self.comm)
+        #self.field_balanced_map = Epetra.Map(self.number_of_field_variables,field_global_indices.tolist(),0, self.comm)
+        self.field_balanced_map = Epetra.Map(Number_of_Global_Variables,XY_list, 0, self.comm)
+
         # Instantiate the corresponding graph
         self.balanced_field_graph = Epetra.CrsGraph(Epetra.Copy,
                                                     self.field_balanced_map,
@@ -255,10 +274,12 @@ class PD(NOX.Epetra.Interface.Required,
         overlap_map = self.get_overlap_map()
         field_overlap_map = self.get_field_overlap_map()
 
+
         self.overlap_importer = Epetra.Import(balanced_map, overlap_map)
         self.overlap_exporter = Epetra.Export(overlap_map, balanced_map)
         self.field_overlap_importer = Epetra.Import(field_balanced_map,
                                                     field_overlap_map)
+
         self.field_overlap_exporter = Epetra.Export(field_overlap_map,
                                                     field_balanced_map)
 
@@ -312,6 +333,8 @@ class PD(NOX.Epetra.Interface.Required,
         my_x = Epetra.Vector(balanced_map)
         my_y = Epetra.Vector(balanced_map)
         my_field = Epetra.Vector(field_balanced_map)
+        self.init_guess = my_field
+
 
         # Create importers
         grid_importer = Epetra.Import(balanced_map,
@@ -330,24 +353,24 @@ class PD(NOX.Epetra.Interface.Required,
         my_x_overlap = Epetra.Vector(overlap_map)
         my_y_overlap = Epetra.Vector(overlap_map)
         my_field_overlap = Epetra.Vector(field_overlap_map)
+        self.my_field_overlap = my_field_overlap
 
         my_x_overlap.Import(my_x, grid_overlap_importer, Epetra.Insert)
         my_y_overlap.Import(my_y, grid_overlap_importer, Epetra.Insert)
-        my_field_overlap.Import(my_field, field_overlap_importer,
+        self.my_field_overlap.Import(my_field, field_overlap_importer,
                                 Epetra.Insert)
 
         # Residual vector
         self.F_fill = Epetra.Vector(field_balanced_map)
         self.F_fill_overlap = Epetra.Vector(field_overlap_map)
 
-        # Data for sorting/reshaping overlap field vectors
-        self.global_overlap_indices = (self.get_overlap_map()
-                                           .MyGlobalElements())
+        self.global_overlap_indices = (self.get_overlap_map().MyGlobalElements())
 
+        self.velxy_overlap_indices = field_overlap_map.MyGlobalElements()
 
         #rambod
-        self.ux_overlap_indices = np.where(self.global_overlap_indices%2==0)
-        self.uy_overlap_indices = np.where(self.global_overlap_indices%2==1)
+        self.ux_overlap_indices = np.where(self.velxy_overlap_indices%2==0)
+        self.uy_overlap_indices = np.where(self.velxy_overlap_indices%2==1)
         self.ux_local_indices = np.where(global_indices%2==0)
         self.uy_local_indices = np.where(global_indices%2==1)
 
@@ -361,6 +384,25 @@ class PD(NOX.Epetra.Interface.Required,
         self.my_x_overlap_stride = (
              np.argmax(my_x_overlap[self.sorted_local_indices])
              )
+        self.my_y_overlap_stride = (
+             np.argmax(my_y_overlap[self.sorted_local_indices])
+             )
+        x_max = np.amax(my_x_overlap)
+        x_min = np.amin(my_x_overlap)
+        y_max = np.amax(my_y_overlap)
+        y_min = np.amin(my_y_overlap)
+        delta_x = x_max-x_min
+        delta_y = y_max-y_min
+        #print self.grid_spacing
+        x_length = delta_y/self.grid_spacing
+        y_length = delta_x/self.grid_spacing
+        self.my_y_stride = y_length+1
+        print x_length
+        print y_length
+        ttt.sleep(1)
+
+        #self.term_x = np.zeros((int(y_length),int(x_length)))
+        #self.term_y = np.zeros((int(y_length),int(x_length)))
 
 
         self.my_x = my_x
@@ -412,9 +454,6 @@ class PD(NOX.Epetra.Interface.Required,
 
         self.BC_Left_fill_uy = BC_Left_fill_uy
         self.BC_Left_fill_ux = BC_Left_fill_uy
-
-
-
 
         #Bottom BC with one horizon thickness"""
         ymin_bottom = np.where(self.my_y >= (-hgs))[0]
@@ -519,67 +558,81 @@ class PD(NOX.Epetra.Interface.Required,
            Implements the residual calculation as required by NOX.
         """
         try:
-
             #Import off processor data
             self.my_field_overlap.Import(x, self.get_field_overlap_importer(),
                                         Epetra.Insert)
 
             # Theses are the sorted and reshaped overlap vectors
-            my_ux = (self.my_field_overlap[:-1:2][self.sorted_local_indices]
-                                            .reshape(-1, self.my_x_overlap_stride))
-            my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
-            my_uy = (self.my_field_overlap[1::2][self.sorted_local_indices]
-                                            .reshape(-1, self.my_x_overlap_stride))
-            my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(-1, self.my_x_overlap_stride)
+            my_ux = (self.my_field_overlap[:-1:2][self.sorted_local_indices].reshape(int(self.my_y_stride),-1))
+            my_uy = (self.my_field_overlap[1::2][self.sorted_local_indices].reshape(int(self.my_y_stride),-1))
+            my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(int(self.my_y_stride),-1)
+            my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(int(self.my_y_stride),-1)
+
+
+            term_x = my_ux
+            term_y = my_uy
+            current_pressure = my_ux
+
+
             #let's calculate pressure based on penalty method for incompressible flow
-            current_pressure = self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
+            current_pressure [1:-1, 1:-1]= self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
-            residual = (x - self.my_field)  / self.delta_t
+            residual = (x - self.my_field_overlap)  / self.delta_t
+
+            print "pressure calc done"
 
             # u · ∇u term, with central difference approximation of gradient
-            term1_x = my_ux[1:-1, 1:-1] * (my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x
-            term1_y = my_uy[1:-1, 1:-1] * (my_uy[:-2, 1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y
+            term_x[1:-1, 1:-1] = my_ux[1:-1, 1:-1] * (my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x
+            term_y[1:-1, 1:-1] = my_uy[1:-1, 1:-1] * (my_uy[:-2, 1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y
+
             # Add these terms into the residual
-            residual[:-1:2] += term1_x.flatten()[self.unsorted_local_indices]
-            residual[1::2]  += term1_y.flatten()[self.unsorted_local_indices]
+            residual[:-1:2] += term_x.flatten()[self.unsorted_local_indices]
+            residual[1::2]  += term_y.flatten()[self.unsorted_local_indices]
+
+            print "term_1 calc done"
 
             #second term, viscous term ,calculation
-            term2_x = visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2)+ ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1,-1])/seld.delta_y**2.0))
-            term2_y = visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1,-1])/seld.delta_y**2.0))
-            residual[:-1:2] -= term2_x.flatten()[self.unsorted_local_indices]
-            residual[1::2] -= term2_y.flatten()[self.unsorted_local_indices]
+            term_x[1:-1, 1:-1]= self.visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2) + ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1:-1])/self.delta_y**2.0))
+            term_y[1:-1, 1:-1]= self.visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1:-1])/self.delta_y**2.0))
+            residual[:-1:2] -= term_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] -= term_y.flatten()[self.unsorted_local_indices]
+
+            print "term_2 calc done"
 
 
 
             #third term, Pressure term, calculation
-            term3_x = (-1.0/rho) * ( current_pressure[1:-1,:-2]-current_pressure[1:-1,2:])/2.0/self.delta_x
-            term3_y = (-1.0/rho) * ( current_pressure[:-2,1:-1]-current_pressure[2:,1:-1])/2.0/self.delta_y
+            term_x[1:-1, 1:-1]= (-1.0/self.rho) * ( current_pressure[1:-1,:-2]-current_pressure[1:-1,2:])/2.0/self.delta_x
+            term_y[1:-1, 1:-1]= (-1.0/self.rho) * ( current_pressure[:-2,1:-1]-current_pressure[2:,1:-1])/2.0/self.delta_y
             # Do the rest of the terms
-            residual[:-1:2] -= term3_x.flatten()[self.unsorted_local_indices]
-            residual[1::2] -= term3_y.flatten()[self.unsorted_local_indices]
+            residual[:-1:2] -= term_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] -= term_y.flatten()[self.unsorted_local_indices]
+
+            print "term_3 calc done"
 
             #fourth term, time derivative calculation
-            term4_x = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
-            term4_y = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
-            residual[:-1:2] += term4_x.flatten()[self.unsorted_local_indices]
-            residual[1::2] += term4_y.flatten()[self.unsorted_local_indices]
+            term_x[1:-1, 1:-1] = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
+            term_y[1:-1, 1:-1] = (my_uy[1:-1,1:-1] - my_uy_n[1:-1,1:-1]) / self.time_stepping
+            residual[:-1:2] += term_x.flatten()[self.unsorted_local_indices]
+            residual[1::2] += term_y.flatten()[self.unsorted_local_indices]
 
+            print "term_4 calc done"
+            self.F_fill_overlap.shape
 
             # Put residual into my_field
-            num_owned = self.get_neighborhood_graph().NumMyRows()
-            self.F_fill_overlap[:] = residual
-
-            # Export off-processor contributions to the residual
-            self.F_fill_overlap.Export(self.F_fill,
-                                 self.get_field_overlap_importer,
-                                 Epetra.Add)
-
-            ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
+            print np.array(self.ux_overlap_indices).shape
             self.F_fill_overlap[self.ux_overlap_indices]= residual[:-1:2]
             self.F_fill_overlap[self.uy_overlap_indices]= residual[1::2]
+            print "here"
+
+            # Export off-processor contributions to the residual
+            self.F_fill.Export(self.F_fill_overlap, self.get_field_overlap_importer, Epetra.Add)
+            print "here 111"
+
+            ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
             #Export F fill from [ghost+owned] to [owned]
             # Epetra.Add adds off processor contributions to local nodes
-            self.F_fill.Export(self.F_fill_overlap, vel_overlap_importer, Epetra.Add)
+            #self.F_fill.Export(self.F_fill_overlap, vel_overlap_importer, Epetra.Add)
             ##update residual F with F_fill
             F[:] = self.F_fill[:]
 
@@ -598,9 +651,9 @@ class PD(NOX.Epetra.Interface.Required,
 
             self.i = self.i + 1
 
-        except (Exception, e):
-            print("Exception in PD.computeF method")
-            print(e)
+        except Exception, e:
+            print "Exception in PD.computeF method"
+            print e
 
             return False
 
@@ -613,9 +666,9 @@ class PD(NOX.Epetra.Interface.Required,
             #print " Jacobian called "
             pass
 
-        except (Exception, e):
-            print("Exception in PD.computeJacobian method")
-            print(e)
+        except Exception, e:
+            print "Exception in PD.computeJacobian method"
+            print e
             return False
 
         return True
@@ -710,13 +763,10 @@ if __name__ == "__main__":
         #size = ref_mag_state.shape
         #one = np.ones(size)
 
-
-
-
-
         #omega =one
         #problem.omega = omega
         #linear = 0
+        init_guess = problem.init_guess
 
         vel_overlap_importer = problem.get_field_overlap_importer()
         field_overlap_map = problem.get_field_overlap_map()
@@ -732,25 +782,27 @@ if __name__ == "__main__":
         scalar_variables = ['velocity_x','velocity_y']
         outfile = Ensight('output',vector_variables, scalar_variables,
         problem.comm, viz_path=VIZ_PATH)
+        problem.velocity_y_n = problem.my_field_overlap[:-1:2]
+        problem.velocity_x_n = problem.my_field_overlap[1::2]
 
-        end_range=5000000
+        end_range=1000
         for i in range(end_range):
             print(i)
             problem.jac_comp = True
             fdc_velocity = NOX.Epetra.FiniteDifferenceColoring(
-                   nl_params, problem, init_vel_guess,
+                   nl_params, problem, init_guess,
                    field_graph, False, False)
-            fdc_velocity.computeJacobian(init_vel_guess)
-            jacobian = fdc_velocity_x.getUnderlyingMatrix()
+            fdc_velocity.computeJacobian(init_guess)
+            jacobian = fdc_velocity.getUnderlyingMatrix()
             jacobian.FillComplete()
             problem.jac_comp = False
             #Create NOX solver object, solve for velocity_x and velocity_y
             if i<1:
-                solver = NOX.Epetra.defaultSolver(init_vel_guess, problem,
+                solver = NOX.Epetra.defaultSolver(init_guess, problem,
                         problem, jacobian,nlParams = nl_params, maxIters=1,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 8.0e-7, relTol = None)
             else:
-                solver = NOX.Epetra.defaultSolver(init_vel_guess, problem,
+                solver = NOX.Epetra.defaultSolver(init_guess, problem,
                     problem, jacobian,nlParams = nl_params, maxIters=100,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 1.0e-6, relTol = None)
             solveStatus = solver.solve()
@@ -762,8 +814,8 @@ if __name__ == "__main__":
             init_vel_guess[uy_local_indices]= solution[uy_local_indices]
             #velocity_y_n = solution[uy_local_indices]
             problem.my_field_overlap.Import( solution, vel_overlap_importer, Epetra.Insert )
-            problem.velocity_y_n = my_field_overlap[:-1:2]
-            problem.velocity_x_n = my_field_overlap[1::2]
+            problem.velocity_y_n = problem.my_field_overlap[:-1:2]
+            problem.velocity_x_n = problem.my_field_overlap[1::2]
             #plotting the results
             sol_velocity_x = solution[ux_local_indices]
             sol_velocity_y = solution[uy_local_indices]
