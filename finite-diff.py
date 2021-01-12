@@ -199,8 +199,7 @@ class PD(NOX.Epetra.Interface.Required,
         # Assign velocity_x (ux) and velocity_y (uy) indices for each node
         self.number_of_field_variables = 2 * self.__global_number_of_nodes
         global_indices = self.balanced_map.MyGlobalElements()
-
-	Global_Indices = self.balanced_map.MyGlobalElements()
+        Global_Indices = global_indices #self.balanced_map.MyGlobalElements()
 
         XY_Global_Indices = np.zeros(2*len(Global_Indices),dtype = np.int32)
 
@@ -397,9 +396,6 @@ class PD(NOX.Epetra.Interface.Required,
         x_length = delta_y/self.grid_spacing
         y_length = delta_x/self.grid_spacing
         self.my_y_stride = y_length+1
-        print x_length
-        print y_length
-        ttt.sleep(1)
 
         #self.term_x = np.zeros((int(y_length),int(x_length)))
         #self.term_y = np.zeros((int(y_length),int(x_length)))
@@ -573,13 +569,11 @@ class PD(NOX.Epetra.Interface.Required,
             term_y = my_uy
             current_pressure = my_ux
 
-
             #let's calculate pressure based on penalty method for incompressible flow
             current_pressure [1:-1, 1:-1]= self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
-            residual = (x - self.my_field_overlap)  / self.delta_t
+            residual = (x[:] - self.my_field_overlap[:])  / self.delta_t
 
-            print "pressure calc done"
 
             # u · ∇u term, with central difference approximation of gradient
             term_x[1:-1, 1:-1] = my_ux[1:-1, 1:-1] * (my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x
@@ -589,16 +583,12 @@ class PD(NOX.Epetra.Interface.Required,
             residual[:-1:2] += term_x.flatten()[self.unsorted_local_indices]
             residual[1::2]  += term_y.flatten()[self.unsorted_local_indices]
 
-            print "term_1 calc done"
 
             #second term, viscous term ,calculation
             term_x[1:-1, 1:-1]= self.visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2) + ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1:-1])/self.delta_y**2.0))
             term_y[1:-1, 1:-1]= self.visc * ((my_uy[1:-1, 2:] - 2*my_uy[1:-1,1:-1]+my_uy[1:-1,0:-2])/(self.delta_x**2)+ ((my_uy[2:,1:-1]-2*my_uy[1:-1,1:-1]+my_uy[:-2,1:-1])/self.delta_y**2.0))
             residual[:-1:2] -= term_x.flatten()[self.unsorted_local_indices]
             residual[1::2] -= term_y.flatten()[self.unsorted_local_indices]
-
-            print "term_2 calc done"
-
 
 
             #third term, Pressure term, calculation
@@ -608,7 +598,6 @@ class PD(NOX.Epetra.Interface.Required,
             residual[:-1:2] -= term_x.flatten()[self.unsorted_local_indices]
             residual[1::2] -= term_y.flatten()[self.unsorted_local_indices]
 
-            print "term_3 calc done"
 
             #fourth term, time derivative calculation
             term_x[1:-1, 1:-1] = (my_ux[1:-1,1:-1] - my_ux_n[1:-1,1:-1]) / self.time_stepping
@@ -616,18 +605,18 @@ class PD(NOX.Epetra.Interface.Required,
             residual[:-1:2] += term_x.flatten()[self.unsorted_local_indices]
             residual[1::2] += term_y.flatten()[self.unsorted_local_indices]
 
-            print "term_4 calc done"
-            self.F_fill_overlap.shape
 
             # Put residual into my_field
-            print np.array(self.ux_overlap_indices).shape
             self.F_fill_overlap[self.ux_overlap_indices]= residual[:-1:2]
             self.F_fill_overlap[self.uy_overlap_indices]= residual[1::2]
-            print "here"
-
+            print ("here")
             # Export off-processor contributions to the residual
+            #print np.array(self.ux_overlap_indices).shape
+            print (self.F_fill_overlap.shape)
+            print (x.shape)
+            ttt.sleep(1)
             self.F_fill.Export(self.F_fill_overlap, self.get_field_overlap_importer, Epetra.Add)
-            print "here 111"
+            print ("here 111")
 
             ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
             #Export F fill from [ghost+owned] to [owned]
@@ -651,9 +640,9 @@ class PD(NOX.Epetra.Interface.Required,
 
             self.i = self.i + 1
 
-        except Exception, e:
-            print "Exception in PD.computeF method"
-            print e
+        except Exception as e:
+            print ("Exception in PD.computeF method")
+            print (e)
 
             return False
 
@@ -666,9 +655,9 @@ class PD(NOX.Epetra.Interface.Required,
             #print " Jacobian called "
             pass
 
-        except Exception, e:
-            print "Exception in PD.computeJacobian method"
-            print e
+        except Exception as e:
+            print ("Exception in PD.computeJacobian method")
+            print (e)
             return False
 
         return True
