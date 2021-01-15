@@ -554,6 +554,9 @@ class PD(NOX.Epetra.Interface.Required,
            Implements the residual calculation as required by NOX.
         """
         try:
+            neighborhood_graph = self.get_balanced_neighborhood_graph()
+            num_owned = neighborhood_graph.NumMyRows()
+            print ("entered computeF")
             #Import off processor data
             self.my_field_overlap.Import(x, self.get_field_overlap_importer(),
                                         Epetra.Insert)
@@ -564,16 +567,19 @@ class PD(NOX.Epetra.Interface.Required,
             my_ux_n = self.velocity_x_n[self.sorted_local_indices].reshape(int(self.my_y_stride),-1)
             my_uy_n = self.velocity_y_n[self.sorted_local_indices].reshape(int(self.my_y_stride),-1)
 
-
+            "initialing variables with correct size and format"
             term_x = my_ux
             term_y = my_uy
             current_pressure = my_ux
 
+            print ("computeF3")
             #let's calculate pressure based on penalty method for incompressible flow
             current_pressure [1:-1, 1:-1]= self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
+            print ("computeF4")
             residual = (x[:] - self.my_field_overlap[:])  / self.delta_t
 
+            print ("computeF5")
 
             # u · ∇u term, with central difference approximation of gradient
             term_x[1:-1, 1:-1] = my_ux[1:-1, 1:-1] * (my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x
@@ -597,6 +603,7 @@ class PD(NOX.Epetra.Interface.Required,
             # Do the rest of the terms
             residual[:-1:2] -= term_x.flatten()[self.unsorted_local_indices]
             residual[1::2] -= term_y.flatten()[self.unsorted_local_indices]
+            print ("computeF3")
 
 
             #fourth term, time derivative calculation
@@ -609,14 +616,10 @@ class PD(NOX.Epetra.Interface.Required,
             # Put residual into my_field
             self.F_fill_overlap[self.ux_overlap_indices]= residual[:-1:2]
             self.F_fill_overlap[self.uy_overlap_indices]= residual[1::2]
-            print ("here")
             # Export off-processor contributions to the residual
             #print np.array(self.ux_overlap_indices).shape
-            print (self.F_fill_overlap.shape)
-            print (x.shape)
-            ttt.sleep(1)
-            self.F_fill.Export(self.F_fill_overlap, self.get_field_overlap_importer, Epetra.Add)
-            print ("here 111")
+            self.F_fill.Export(self.F_fill_overlap, self.get_field_overlap_importer(), Epetra.Add)
+            print ("computeF4")
 
             ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
             #Export F fill from [ghost+owned] to [owned]
@@ -624,6 +627,7 @@ class PD(NOX.Epetra.Interface.Required,
             #self.F_fill.Export(self.F_fill_overlap, vel_overlap_importer, Epetra.Add)
             ##update residual F with F_fill
             F[:] = self.F_fill[:]
+            print ("computeF5")
 
             F[self.BC_Right_fill_ux] = x[self.BC_Right_fill_ux] - 0.157
             F[self.BC_Right_fill_uy] = x[self.BC_Right_fill_uy] - 0.0
@@ -635,6 +639,8 @@ class PD(NOX.Epetra.Interface.Required,
             F[self.BC_Bottom_fill_uy] = x[self.BC_Bottom_fill_uy] -  0.0
             F[self.center_fill_ux] = x[self.center_fill_ux] -0.0
             F[self.center_fill_uy] = x[self.center_fill_uy] -0.0
+
+            print ("done with computeF")
 
 
 
@@ -794,7 +800,9 @@ if __name__ == "__main__":
                 solver = NOX.Epetra.defaultSolver(init_guess, problem,
                     problem, jacobian,nlParams = nl_params, maxIters=100,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 1.0e-6, relTol = None)
+            print ("here 1")
             solveStatus = solver.solve()
+            print ("here 2")
             finalGroup = solver.getSolutionGroup()
             solution = finalGroup.getX()
             #resetting the initial conditions
