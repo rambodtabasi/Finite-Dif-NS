@@ -555,11 +555,11 @@ class PD(NOX.Epetra.Interface.Required,
         """
         try:
             neighborhood_graph = self.get_balanced_neighborhood_graph()
-            num_owned = neighborhood_graph.NumMyRows()
-            print ("entered computeF")
             #Import off processor data
             self.my_field_overlap.Import(x, self.get_field_overlap_importer(),
                                         Epetra.Insert)
+            print (x.shape)
+            ttt.sleep(1)
 
             # Theses are the sorted and reshaped overlap vectors
             my_ux = (self.my_field_overlap[:-1:2][self.sorted_local_indices].reshape(int(self.my_y_stride),-1))
@@ -576,7 +576,8 @@ class PD(NOX.Epetra.Interface.Required,
             #let's calculate pressure based on penalty method for incompressible flow
             current_pressure [1:-1, 1:-1]= self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
             # Now we'll compute the residual
-            print ("computeF4")
+            #print (x.shape)
+            #print (self.my_field_overlap.shape)
             residual = (x[:] - self.my_field_overlap[:])  / self.delta_t
 
             print ("computeF5")
@@ -735,6 +736,7 @@ if __name__ == "__main__":
         i=0
         nodes = 100
         problem = PD(nodes, 10.0)
+        problem.nodes_number = nodes
         pressure_const = problem.pressure_const
         comm = problem.comm
         #Define the initial guess
@@ -801,6 +803,7 @@ if __name__ == "__main__":
                     problem, jacobian,nlParams = nl_params, maxIters=100,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 1.0e-6, relTol = None)
             print ("here 1")
+            print (init_guess.shape)
             solveStatus = solver.solve()
             print ("here 2")
             finalGroup = solver.getSolutionGroup()
