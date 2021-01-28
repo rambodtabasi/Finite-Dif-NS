@@ -53,7 +53,7 @@ class PD(NOX.Epetra.Interface.Required,
         # Domain properties
         #self.iteration = 0
         self.num_nodes = num_nodes
-        self.time_stepping =1e-2
+        self.time_stepping =1e-6
         self.delta_t =self.time_stepping
         self.pressure_const = 1e-2
         self.UX = 0.157
@@ -646,6 +646,7 @@ class PD(NOX.Epetra.Interface.Required,
             F[self.center_fill_ux] = x[self.center_fill_ux] -0.0
             F[self.center_fill_uy] = x[self.center_fill_uy] -0.0
 
+
             self.i = self.i + 1
 
         except Exception as e:
@@ -824,6 +825,8 @@ if __name__ == "__main__":
             sol_velocity_y = solution[uy_local_indices]
             velocity_x = problem.velocity_x_n
             velocity_y = problem.velocity_y_n
+            init_guess = solution
+
 
 
 
@@ -832,8 +835,8 @@ if __name__ == "__main__":
             v_x = comm.GatherAll(sol_velocity_x).flatten()
             v_y = comm.GatherAll(sol_velocity_y).flatten()
 
-            #velocity_total = (sol_velocity_y **2 + sol_velocity_x**2 )** 0.5
-            #v_out = comm.GatherAll(velocity_total).flatten()
+            velocity_total = (v_x **2 + v_y **2 )** 0.5
+            v_out = comm.GatherAll(velocity_total).flatten()
 
             if i%100==0:
                 print ("saving outputs")
@@ -856,5 +859,6 @@ if __name__ == "__main__":
             outfile.write_case_file(comm)
 
             ################################################################
+            print("wrote ensight files")
         outfile.finalize()
     main()
