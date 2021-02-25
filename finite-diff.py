@@ -368,8 +368,6 @@ class PD(NOX.Epetra.Interface.Required,
         self.global_overlap_indices = (self.get_overlap_map().MyGlobalElements())
 
         self.field_overlap_indices = field_overlap_map.MyGlobalElements()
-        print (self.field_overlap_indices)
-        ttt.sleep(10)
         #rambod
         odd_indices_mask = (self.field_overlap_indices%2==1)
         even_indices_mask = (self.field_overlap_indices%2==0)
@@ -583,7 +581,6 @@ class PD(NOX.Epetra.Interface.Required,
             term_y = my_uy
             current_pressure = my_ux
             residual_overlap = np.zeros(self.my_field_overlap.shape)
-            print ("1")
 
             #let's calculate pressure based on penalty method for incompressible flow
             current_pressure [1:-1, 1:-1]= self.pressure_const * ((my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x +  (my_uy[:-2,1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y)
@@ -592,7 +589,6 @@ class PD(NOX.Epetra.Interface.Required,
             # Now we'll compute the residual
             residual = (x[:num_owned] - self.my_field_overlap[:num_owned])  / self.delta_t
 
-            print ("2")
             # u · ∇u term, with central difference approximation of gradient
             term_x[1:-1, 1:-1] = my_ux[1:-1, 1:-1] * (my_ux[1:-1, :-2] - my_ux[1:-1, 2:]) / 2.0 / self.delta_x
             term_y[1:-1, 1:-1] = my_uy[1:-1, 1:-1] * (my_uy[:-2, 1:-1] - my_uy[2:, 1:-1]) / 2.0 / self.delta_y
@@ -601,7 +597,6 @@ class PD(NOX.Epetra.Interface.Required,
             residual[:-1:2] += residual_overlap[:num_owned_1d]
             residual_overlap[1::2] = term_y.flatten()[self.unsorted_local_indices]
             residual[1::2] += residual_overlap[:num_owned_1d]
-            print ("3")
             """
             #second term, viscous term ,calculation
             term_x[1:-1, 1:-1]= self.visc * ((my_ux[1:-1, 2:] - 2*my_ux[1:-1,1:-1]+my_ux[1:-1,0:-2])/(self.delta_x**2) + ((my_ux[2:,1:-1]-2*my_ux[1:-1,1:-1]+my_ux[:-2,1:-1])/self.delta_y**2.0))
@@ -630,15 +625,12 @@ class PD(NOX.Epetra.Interface.Required,
 
             residual_overlap[:]=0.0
             residual_overlap[:num_owned] += residual
-            print ("4")
             # Put residual into my_field
-            self.F_fill_overlap[self.ux_overlap_indices]= residual_overlap[:-1:2]
-            print ("4.5")
-            self.F_fill_overlap[self.uy_overlap_indices]= residual_overlap[1::2]
+            self.F_fill_overlap[:-1:2]= residual_overlap[:-1:2]
+            self.F_fill_overlap[1::2]= residual_overlap[1::2]
             # Export off-processor contributions to the residual
             #print np.array(self.ux_overlap_indices).shape
             self.F_fill.Export(self.F_fill_overlap, self.get_field_overlap_importer(), Epetra.Add)
-            print ("5")
 
             ### velocity_x BOUNDARY CONDITION & RESIDUAL APPLICATION ###
             #Export F fill from [ghost+owned] to [owned]
@@ -646,19 +638,17 @@ class PD(NOX.Epetra.Interface.Required,
             #self.F_fill.Export(self.F_fill_overlap, vel_overlap_importer, Epetra.Add)
             ##update residual F with F_fill
             F[:] = self.F_fill[:]
-            print ("6")
 
             F[self.BC_Right_fill_ux] = x[self.BC_Right_fill_ux] - 0.157
             F[self.BC_Right_fill_uy] = x[self.BC_Right_fill_uy] - 0.0
             F[self.BC_Left_fill_ux] = x[self.BC_Left_fill_ux] -  0.157
             F[self.BC_Left_fill_uy] = x[self.BC_Left_fill_uy] -  0.0
-            F[self.BC_Top_fill_ux] = x[self.BC_Top_fill_ux] -  0.157
-            F[self.BC_Top_fill_uy] = x[self.BC_Top_fill_uy] -  0.0
-            F[self.BC_Bottom_fill_ux] = x[self.BC_Bottom_fill_ux] -  0.157
-            F[self.BC_Bottom_fill_uy] = x[self.BC_Bottom_fill_uy] -  0.0
-            F[self.center_fill_ux] = x[self.center_fill_ux] -0.0
-            F[self.center_fill_uy] = x[self.center_fill_uy] -0.0
-            print ("7")
+            #F[self.BC_Top_fill_ux] = x[self.BC_Top_fill_ux] -  0.157
+            #F[self.BC_Top_fill_uy] = x[self.BC_Top_fill_uy] -  0.0
+            #F[self.BC_Bottom_fill_ux] = x[self.BC_Bottom_fill_ux] -  0.157
+            #F[self.BC_Bottom_fill_uy] = x[self.BC_Bottom_fill_uy] -  0.0
+            #F[self.center_fill_ux] = x[self.center_fill_ux] -0.0
+            #F[self.center_fill_uy] = x[self.center_fill_uy] -0.0
 
 
             self.i = self.i + 1
@@ -674,8 +664,6 @@ class PD(NOX.Epetra.Interface.Required,
 
     # Compute Jacobian as required by NOX
     def computeJacobian(self, x, Jac):
-        print ("here")
-        ttt.sleep(1)
         try:
             #print " Jacobian called "
             pass
@@ -752,7 +740,7 @@ if __name__ == "__main__":
     def main():
         #Create the PD object
         i=0
-        nodes = 20
+        nodes = 10
         problem = PD(nodes, 10.0)
         problem.nodes_number = nodes
         pressure_const = problem.pressure_const
@@ -822,7 +810,7 @@ if __name__ == "__main__":
             #Create NOX solver object, solve for velocity_x and velocity_y
             if i<1:
                 solver = NOX.Epetra.defaultSolver(init_guess, problem,
-                        problem, jacobian,nlParams = nl_params, maxIters=100,
+                        problem, jacobian,nlParams = nl_params, maxIters=10,
                     wAbsTol=None, wRelTol=None, updateTol=None, absTol = 8.0e-7, relTol = None)
             else:
                 solver = NOX.Epetra.defaultSolver(init_guess, problem,
